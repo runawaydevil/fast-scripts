@@ -68,6 +68,8 @@ $extensoes = @(
 # 1) Verificação de dependências
 # ------------------------------------------------------------
 Titulo 'Transcodificar Vídeos'
+Write-Host '  Desenvolvido por Pablo Murad - 2026' -ForegroundColor DarkGray
+Write-Host ''
 Write-Host 'Verificando o que é necessário...' -ForegroundColor Gray
 
 $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue

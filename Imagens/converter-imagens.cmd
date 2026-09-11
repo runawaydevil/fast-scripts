@@ -68,6 +68,8 @@ $formatos = @(
 # 1) Verificação de dependências
 # ------------------------------------------------------------
 Titulo 'Converter Imagens'
+Write-Host '  Desenvolvido por Pablo Murad - 2026' -ForegroundColor DarkGray
+Write-Host ''
 Write-Host 'Verificando o que é necessário...' -ForegroundColor Gray
 
 $magick = Get-Command magick -ErrorAction SilentlyContinue
