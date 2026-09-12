@@ -23,7 +23,7 @@ function Titulo($t) {
 $configDir  = Join-Path $env:APPDATA 'ExtrairAudio'
 $configFile = Join-Path $configDir 'config.json'
 function Carregar-Config { if (Test-Path -LiteralPath $configFile) { try { return Get-Content -LiteralPath $configFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {} }; return $null }
-function Salvar-Config($e,$f) { try { New-Item -ItemType Directory -Path $configDir -Force | Out-Null; [pscustomobject]@{ UltimaEntrada=$e; UltimoFormato=$f } | ConvertTo-Json | Set-Content -LiteralPath $configFile -Encoding UTF8 } catch {} }
+function Salvar-Config($e,$f,$s) { try { New-Item -ItemType Directory -Path $configDir -Force | Out-Null; [pscustomobject]@{ UltimaEntrada=$e; UltimoFormato=$f; UltimaSaida=$s } | ConvertTo-Json | Set-Content -LiteralPath $configFile -Encoding UTF8 } catch {} }
 
 $extensoes = @('.mp4','.mkv','.avi','.mov','.wmv','.flv','.webm','.m4v','.mpg','.mpeg','.mts','.m2ts','.ts','.3gp','.vob')
 
@@ -80,7 +80,20 @@ while (-not $formato) {
     $formato = $formatos | Where-Object { $_.Id -eq ($e -as [int]) } | Select-Object -First 1
     if (-not $formato) { Write-Host '[!] Inválido.' -ForegroundColor Yellow }
 }
-Salvar-Config $origem $formato.Id
+# Pasta de saída (lembra a última; cria se não existir)
+$saidaPadrao = if ($config -and $config.UltimaSaida) { $config.UltimaSaida } else { $destino }
+while ($true) {
+    Titulo 'Pasta de saída'
+    Write-Host "  $saidaPadrao" -ForegroundColor White
+    Write-Host 'Enter = usar esta pasta   |   ou cole/digite outra' -ForegroundColor DarkGray
+    $rsaida = Read-Host 'Pasta de saída'
+    $destino = if ([string]::IsNullOrWhiteSpace($rsaida)) { $saidaPadrao } else { $rsaida.Trim().Trim('"') }
+    try { New-Item -ItemType Directory -Path $destino -Force | Out-Null; break }
+    catch { Write-Host '[!] Não foi possível criar/usar essa pasta.' -ForegroundColor Yellow }
+}
+$destino = (Resolve-Path -LiteralPath $destino).Path
+
+Salvar-Config $origem $formato.Id $destino
 
 # Coleta
 if ($modoArquivo) { $arquivos = @($arquivoObj) } else {

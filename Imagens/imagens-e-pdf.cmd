@@ -21,6 +21,10 @@ function Titulo($t) {
 }
 
 $extImg = @('.jpg','.jpeg','.png','.webp','.bmp','.tif','.tiff')
+$configDir  = Join-Path $env:APPDATA 'ImagensEPdf'
+$configFile = Join-Path $configDir 'config.json'
+function Carregar-Config { if (Test-Path -LiteralPath $configFile) { try { return Get-Content -LiteralPath $configFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {} }; return $null }
+function Salvar-Config($o) { try { New-Item -ItemType Directory -Path $configDir -Force | Out-Null; $o | ConvertTo-Json | Set-Content -LiteralPath $configFile -Encoding UTF8 } catch {} }
 
 Titulo 'Imagens e PDF'
 Write-Host '  Desenvolvido por Pablo Murad - 2026' -ForegroundColor DarkGray
@@ -29,6 +33,7 @@ Write-Host 'Verificando o que é necessário...' -ForegroundColor Gray
 $magick = Get-Command magick -ErrorAction SilentlyContinue
 if (-not $magick) { Write-Host ''; Write-Host '[ERRO] ImageMagick não encontrado.' -ForegroundColor Red; Write-Host 'Instale com:  winget install ImageMagick.ImageMagick' -ForegroundColor White; Pausar; exit 1 }
 Write-Host "[OK] ImageMagick: $($magick.Source)" -ForegroundColor Green
+$config = Carregar-Config
 
 Titulo 'O que você quer fazer?'
 Write-Host '  [1] Imagens -> PDF   (junta todas as imagens de uma pasta num PDF)' -ForegroundColor White
@@ -51,7 +56,19 @@ if ($acao -eq 'img2pdf') {
     $nome = (Read-Host 'Nome do PDF de saída (Enter = saida.pdf)').Trim()
     if ([string]::IsNullOrWhiteSpace($nome)) { $nome = 'saida.pdf' }
     if ($nome -notmatch '\.pdf$') { $nome += '.pdf' }
-    $pdf = Join-Path $pasta $nome
+    $saidaPadrao = if ($config -and $config.UltimaSaidaPdf) { $config.UltimaSaidaPdf } else { $pasta }
+    while ($true) {
+        Titulo 'Pasta de saída'
+        Write-Host "  $saidaPadrao" -ForegroundColor White
+        Write-Host 'Enter = usar esta pasta   |   ou cole/digite outra' -ForegroundColor DarkGray
+        $rsaida = Read-Host 'Pasta de saída'
+        $destino = if ([string]::IsNullOrWhiteSpace($rsaida)) { $saidaPadrao } else { $rsaida.Trim().Trim('"') }
+        try { New-Item -ItemType Directory -Path $destino -Force | Out-Null; break }
+        catch { Write-Host '[!] Não foi possível criar/usar essa pasta.' -ForegroundColor Yellow }
+    }
+    $destino = (Resolve-Path -LiteralPath $destino).Path
+    Salvar-Config ([pscustomobject]@{ UltimaSaidaPdf=$destino; UltimaSaidaImg=($config.UltimaSaidaImg) })
+    $pdf = Join-Path $destino $nome
     Write-Host ''; Write-Host "Gerando: $pdf ..." -ForegroundColor Cyan
     $imgArgs = @($imagens.FullName) + @('-auto-orient', $pdf)
     & magick @imgArgs
@@ -82,10 +99,25 @@ $dpi = if (($dpiEnt.Trim()) -and ($dpiEnt -as [int])) { [int]$dpiEnt } else { 15
 if ($modoArquivo) { $pdfs = @(Get-Item -LiteralPath $pdfAlvo) } else { $pdfs = @(Get-ChildItem -LiteralPath $pdfAlvo -File | Where-Object { $_.Extension.ToLowerInvariant() -eq '.pdf' }) }
 if ($pdfs.Count -eq 0) { Write-Host 'Nenhum PDF encontrado.' -ForegroundColor Yellow; Pausar; exit 0 }
 
+$baseSaida = if ($modoArquivo) { Split-Path $pdfAlvo -Parent } else { $pdfAlvo }
+$saidaPadrao = if ($config -and $config.UltimaSaidaImg) { $config.UltimaSaidaImg } else { $baseSaida }
+while ($true) {
+    Titulo 'Pasta de saída (base)'
+    Write-Host "  $saidaPadrao" -ForegroundColor White
+    Write-Host '(cada PDF cria uma subpasta <nome>-imagens aqui dentro)' -ForegroundColor DarkGray
+    Write-Host 'Enter = usar esta pasta   |   ou cole/digite outra' -ForegroundColor DarkGray
+    $rsaida = Read-Host 'Pasta de saída'
+    $destino = if ([string]::IsNullOrWhiteSpace($rsaida)) { $saidaPadrao } else { $rsaida.Trim().Trim('"') }
+    try { New-Item -ItemType Directory -Path $destino -Force | Out-Null; break }
+    catch { Write-Host '[!] Não foi possível criar/usar essa pasta.' -ForegroundColor Yellow }
+}
+$destino = (Resolve-Path -LiteralPath $destino).Path
+Salvar-Config ([pscustomobject]@{ UltimaSaidaPdf=($config.UltimaSaidaPdf); UltimaSaidaImg=$destino })
+
 Titulo 'Processando'
 $ok=0;$err=0
 foreach ($pf in $pdfs) {
-    $outDir = Join-Path $pf.DirectoryName ($pf.BaseName + '-imagens')
+    $outDir = Join-Path $destino ($pf.BaseName + '-imagens')
     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
     $padraoSaida = Join-Path $outDir ('pagina-%03d' + $extSaida)
     Write-Host ''; Write-Host $pf.Name -ForegroundColor Magenta

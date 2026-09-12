@@ -20,6 +20,11 @@ function Titulo($t) {
     Write-Host '============================================================' -ForegroundColor DarkCyan
 }
 
+$configDir  = Join-Path $env:APPDATA 'CriarGif'
+$configFile = Join-Path $configDir 'config.json'
+function Carregar-Config { if (Test-Path -LiteralPath $configFile) { try { return Get-Content -LiteralPath $configFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {} }; return $null }
+function Salvar-Config($o) { try { New-Item -ItemType Directory -Path $configDir -Force | Out-Null; $o | ConvertTo-Json | Set-Content -LiteralPath $configFile -Encoding UTF8 } catch {} }
+
 $extVideo = @('.mp4','.mkv','.avi','.mov','.wmv','.flv','.webm','.m4v','.mpg','.mpeg','.ts','.3gp','.vob')
 $extImg   = @('.jpg','.jpeg','.png','.webp','.bmp','.tif','.tiff')
 
@@ -30,6 +35,7 @@ Write-Host 'Verificando o que é necessário...' -ForegroundColor Gray
 $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
 if (-not $ffmpeg) { Write-Host ''; Write-Host '[ERRO] FFmpeg não encontrado.' -ForegroundColor Red; Write-Host 'Instale com:  winget install Gyan.FFmpeg' -ForegroundColor White; Pausar; exit 1 }
 Write-Host "[OK] FFmpeg: $($ffmpeg.Source)" -ForegroundColor Green
+$config = Carregar-Config
 
 Titulo 'O que você quer fazer?'
 Write-Host '  [1] Vídeo -> GIF' -ForegroundColor White
@@ -55,6 +61,20 @@ if ($acao -eq 'gif') {
     if ($modoArquivo) { $arquivoObj = Get-Item -LiteralPath $arquivoUnico; $origem = $arquivoObj.DirectoryName; $videos = @($arquivoObj) }
     else { $origem = $entrada; $videos = @(Get-ChildItem -LiteralPath $origem -File | Where-Object { $extVideo -contains $_.Extension.ToLowerInvariant() }) }
     $destino = Join-Path $origem 'GIF'
+
+    # Pasta de saída (lembra a última; cria se não existir)
+    $saidaPadrao = if ($config -and $config.UltimaSaidaGif) { $config.UltimaSaidaGif } else { $destino }
+    while ($true) {
+        Titulo 'Pasta de saída'
+        Write-Host "  $saidaPadrao" -ForegroundColor White
+        Write-Host 'Enter = usar esta pasta   |   ou cole/digite outra' -ForegroundColor DarkGray
+        $rsaida = Read-Host 'Pasta de saída'
+        $destino = if ([string]::IsNullOrWhiteSpace($rsaida)) { $saidaPadrao } else { $rsaida.Trim().Trim('"') }
+        try { New-Item -ItemType Directory -Path $destino -Force | Out-Null; break }
+        catch { Write-Host '[!] Não foi possível criar/usar essa pasta.' -ForegroundColor Yellow }
+    }
+    $destino = (Resolve-Path -LiteralPath $destino).Path
+    Salvar-Config ([pscustomobject]@{ UltimaSaidaGif=$destino; UltimaSaidaSlide=($config.UltimaSaidaSlide) })
 
     Titulo 'Processando'
     Write-Host "Largura: $larg px   |   FPS: $fps   |   Destino: $destino"
@@ -98,7 +118,20 @@ $sEnt = Read-Host 'Segundos por foto (Enter = 2)'; $seg = if ($sEnt -as [double]
 $nome = (Read-Host 'Nome do vídeo de saída (Enter = slideshow.mp4)').Trim()
 if ([string]::IsNullOrWhiteSpace($nome)) { $nome = 'slideshow.mp4' }
 if ($nome -notmatch '\.mp4$') { $nome += '.mp4' }
-$saida = Join-Path $pasta $nome
+# Pasta de saída (lembra a última; cria se não existir)
+$saidaPadrao = if ($config -and $config.UltimaSaidaSlide) { $config.UltimaSaidaSlide } else { $pasta }
+while ($true) {
+    Titulo 'Pasta de saída'
+    Write-Host "  $saidaPadrao" -ForegroundColor White
+    Write-Host 'Enter = usar esta pasta   |   ou cole/digite outra' -ForegroundColor DarkGray
+    $rsaida = Read-Host 'Pasta de saída'
+    $destino = if ([string]::IsNullOrWhiteSpace($rsaida)) { $saidaPadrao } else { $rsaida.Trim().Trim('"') }
+    try { New-Item -ItemType Directory -Path $destino -Force | Out-Null; break }
+    catch { Write-Host '[!] Não foi possível criar/usar essa pasta.' -ForegroundColor Yellow }
+}
+$destino = (Resolve-Path -LiteralPath $destino).Path
+Salvar-Config ([pscustomobject]@{ UltimaSaidaGif=($config.UltimaSaidaGif); UltimaSaidaSlide=$destino })
+$saida = Join-Path $destino $nome
 
 # Monta arquivo de lista para o demuxer concat (caminhos com / e aspas)
 $listaTxt = Join-Path $env:TEMP ("slide_{0}.txt" -f ([guid]::NewGuid().ToString('N')))

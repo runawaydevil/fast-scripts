@@ -88,7 +88,20 @@ while (-not $posicao) { $e = Read-Host 'Posição (1-5, Enter = 1)'; if ([string
 $grav = $posicao.Gravity
 $offset = if ($grav -eq 'Center') { '+0+0' } else { '+25+25' }
 
-Salvar-Config ([pscustomobject]@{ UltimaEntrada=$origem; UltimoTipo=$tipo; UltimoTexto=$texto; UltimoLogo=$logo; UltimaPosicao=$posicao.Id })
+# Pasta de saída (lembra a última; cria se não existir)
+$saidaPadrao = if ($config -and $config.UltimaSaida) { $config.UltimaSaida } else { $destino }
+while ($true) {
+    Titulo 'Pasta de saída'
+    Write-Host "  $saidaPadrao" -ForegroundColor White
+    Write-Host 'Enter = usar esta pasta   |   ou cole/digite outra' -ForegroundColor DarkGray
+    $rsaida = Read-Host 'Pasta de saída'
+    $destino = if ([string]::IsNullOrWhiteSpace($rsaida)) { $saidaPadrao } else { $rsaida.Trim().Trim('"') }
+    try { New-Item -ItemType Directory -Path $destino -Force | Out-Null; break }
+    catch { Write-Host '[!] Não foi possível criar/usar essa pasta.' -ForegroundColor Yellow }
+}
+$destino = (Resolve-Path -LiteralPath $destino).Path
+
+Salvar-Config ([pscustomobject]@{ UltimaEntrada=$origem; UltimoTipo=$tipo; UltimoTexto=$texto; UltimoLogo=$logo; UltimaPosicao=$posicao.Id; UltimaSaida=$destino })
 
 # Coleta
 if ($modoArquivo) { $arquivos = @($arquivoObj) } else {
