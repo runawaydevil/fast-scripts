@@ -36,15 +36,47 @@ Write-Host 'Analisando... (agrupa por tamanho e depois compara o conteúdo)' -Fo
 $todos = @(Get-ChildItem -LiteralPath $pasta -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -gt 0 })
 
 # 1) agrupa por tamanho (rápido); 2) só calcula hash de quem tem tamanho repetido
-$porTamanho = $todos | Group-Object Length | Where-Object { $_.Count -gt 1 }
-$grupos = @()
-foreach ($g in $porTamanho) {
-    $porHash = $g.Group | Group-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
-    foreach ($h in ($porHash | Where-Object { $_.Count -gt 1 })) {
-        $grupos += ,@($h.Group | Sort-Object FullName)
-    }
+function Hash-SHA256([string]$caminho) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $fs  = [System.IO.File]::OpenRead($caminho)
+    try { return ([BitConverter]::ToString($sha.ComputeHash($fs)) -replace '-', '') }
+    finally { $fs.Close(); $sha.Dispose() }
+}
+# Pre-filtro barato: hash so das PONTAS do arquivo (primeiros/ultimos 64 KB).
+# So quem colide nas pontas paga o SHA256 do arquivo inteiro.
+function Hash-Parcial([string]$caminho, [long]$tam) {
+    $n = 65536
+    try { $fs = [System.IO.File]::OpenRead($caminho) } catch { return "ERRO$caminho" }
+    try {
+        $md5 = [System.Security.Cryptography.MD5]::Create()
+        $buf = New-Object byte[] $n
+        $lido = $fs.Read($buf, 0, $n)
+        [void]$md5.TransformBlock($buf, 0, $lido, $buf, 0)
+        if ($tam -gt ($n * 2)) {
+            [void]$fs.Seek(-$n, [System.IO.SeekOrigin]::End)
+            $lido2 = $fs.Read($buf, 0, $n)
+            [void]$md5.TransformBlock($buf, 0, $lido2, $buf, 0)
+        }
+        [void]$md5.TransformFinalBlock((New-Object byte[] 0), 0, 0)
+        return ([BitConverter]::ToString($md5.Hash) + "_$tam")
+    } catch { return "ERRO$caminho" } finally { $fs.Close() }
 }
 
+$porTamanho = @($todos | Group-Object Length | Where-Object { $_.Count -gt 1 })
+$grupos = @()
+$gi = 0
+foreach ($g in $porTamanho) {
+    $gi++
+    Write-Host ("`r  Comparando... {0}/{1} grupos   " -f $gi, $porTamanho.Count) -NoNewline -ForegroundColor Cyan
+    $porParcial = $g.Group | Group-Object { Hash-Parcial $_.FullName $_.Length }
+    foreach ($pp in ($porParcial | Where-Object { $_.Count -gt 1 })) {
+        $porHash = $pp.Group | Group-Object { Hash-SHA256 $_.FullName }
+        foreach ($h in ($porHash | Where-Object { $_.Count -gt 1 })) {
+            $grupos += ,@($h.Group | Sort-Object FullName)
+        }
+    }
+}
+if ($porTamanho.Count -gt 0) { Write-Host '' }
 if ($grupos.Count -eq 0) { Titulo 'Resultado'; Write-Host 'Nenhum arquivo duplicado encontrado.' -ForegroundColor Green; Pausar; exit 0 }
 
 $totalDup = 0; $espaco = 0

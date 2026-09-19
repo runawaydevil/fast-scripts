@@ -1,39 +1,53 @@
-# Transcodificar
+# Transcodificar Vídeos
 
-Programa para converter vídeos, um de cada vez ou vários de uma pasta, com escolha de qualidade.
+Converte vídeos em lote para MP4, escolhendo a qualidade e quem faz o trabalho pesado (placa de vídeo ou processador).
 
 ## Como abrir
 
-Abra o arquivo `transcodificar.cmd` na pasta `Vídeos` (duplo clique ou Execute).
+Dê um duplo-clique em `Vídeos\transcodificar.cmd` — ou abra o `canivete.cmd` na raiz e escolha pelo número.
 
-Na primeira vez, se faltar algo necessário no computador, o programa avisa e mostra o que instalar. Depois de instalar, feche e abra de novo.
+## O que precisa
+
+- **FFmpeg** — `winget install Gyan.FFmpeg`
+- *(opcional)* placa **NVIDIA** para o modo GPU
 
 ## Passo a passo
 
-1. **Pasta ou vídeo**  
-   Confirme o caminho sugerido (Enter) ou cole/digite o caminho de uma pasta ou de um arquivo de vídeo.  
-   Se a pasta não existir, o programa pergunta se quer criá-la.
+1. Informe a **pasta ou um vídeo** (ele lembra o último caminho).
+2. Escolha a **qualidade** (1 a 5).
+3. Escolha o **motor** de codificação (velocidade × tamanho).
+4. Confirme a **pasta de saída** (é criada se não existir).
+5. Ele converte vários ao mesmo tempo, com barra de progresso.
 
-2. **Qualidade de saída**  
-   Escolha o número da opção:
-   - Máxima (resolução original)
-   - Alta (1080p)
-   - Média (720p)
-   - Baixa (480p)
-   - Mínima (compacta, para prévia ou envio rápido)  
+## Opções
 
-   Enter usa a opção marcada como padrão (a última que você usou; se for a primeira vez, costuma ser a mínima).
+**Qualidade**
 
-3. **Aguarde o processamento**  
-   O programa lista cada vídeo e mostra se foi convertido, ignorado (já existia no destino) ou se deu erro. Vídeos longos podem demorar.
+| # | Perfil | Resolução | CRF |
+|---|--------|-----------|-----|
+| 1 | Máxima | original | 18 |
+| 2 | Alta | 1080p | 20 |
+| 3 | Média | 720p | 23 |
+| 4 | Baixa | 480p | 26 |
+| 5 | Mínima (compacta) | ~320p | 30 |
 
-4. **Resultado**  
-   Os arquivos ficam na pasta `Transcodificado`, dentro da pasta de origem (ou ao lado do vídeo único), em formato adequado para uso geral. A estrutura de subpastas é preservada.
+**Motor**
+
+| # | Motor | Quando usar |
+|---|-------|-------------|
+| 1 | GPU NVENC | Qualidades altas e vídeos longos — bem mais rápido |
+| 2 | CPU rápido (veryfast) | Melhor para a qualidade mínima e lotes |
+| 3 | CPU qualidade (medium) | Arquivo menor no mesmo nível |
+
+## Onde salva
+
+Na pasta de saída que você escolher (padrão: subpasta `Transcodificado` dentro da origem). A estrutura de subpastas é preservada.
 
 ## Dicas
 
-- Você pode processar uma pasta inteira (incluindo subpastas) ou só um arquivo.
-- Formatos comuns de vídeo são aceitos.
-- Qualidade maior = arquivo maior e conversão mais lenta; qualidade menor = arquivo mais leve.
-- O programa lembra a pasta e a qualidade usadas nas últimas execuções.
-- Pressione Enter no final para fechar a janela.
+- Nunca amplia o vídeo: se a origem for menor que o perfil, mantém o tamanho.
+- Arquivos já convertidos são **pulados** — dá para rodar de novo sem medo.
+- Para a qualidade mínima, o **CPU rápido** costuma bater a GPU (o vídeo é pequeno demais para compensar ligar a placa).
+
+---
+*Desenvolvido por Pablo Murad - 2026*

@@ -5,12 +5,12 @@ exit /b %errorlevel%
 #>
 
 # ============================================================
-#  Extrair Áudio - tira o áudio de vídeos (FFmpeg)
+#  Info de Mídia - relatório de codec, resolução e bitrate (FFprobe)
 #  Desenvolvido por Pablo Murad - 2026
 # ============================================================
 
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
-try { $Host.UI.RawUI.WindowTitle = 'Extrair Áudio' } catch {}
+try { $Host.UI.RawUI.WindowTitle = 'Info de Mídia' } catch {}
 
 # ============================================================
 #  Executar-EmParalelo - pool de processos externos (PS 5.1)
@@ -168,143 +168,97 @@ function Titulo($t) {
     Write-Host "  $t" -ForegroundColor Cyan
     Write-Host '============================================================' -ForegroundColor DarkCyan
 }
+function Tam($bytes) {
+    if ($bytes -ge 1GB) { '{0:N2} GB' -f ($bytes/1GB) }
+    elseif ($bytes -ge 1MB) { '{0:N1} MB' -f ($bytes/1MB) }
+    else { '{0:N0} KB' -f ($bytes/1KB) }
+}
 
-$configDir  = Join-Path $env:APPDATA 'ExtrairAudio'
+$configDir  = Join-Path $env:APPDATA 'InfoMidia'
 $configFile = Join-Path $configDir 'config.json'
 function Carregar-Config { if (Test-Path -LiteralPath $configFile) { try { return Get-Content -LiteralPath $configFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {} }; return $null }
-function Salvar-Config($e,$f,$s) { try { New-Item -ItemType Directory -Path $configDir -Force | Out-Null; [pscustomobject]@{ UltimaEntrada=$e; UltimoFormato=$f; UltimaSaida=$s } | ConvertTo-Json | Set-Content -LiteralPath $configFile -Encoding UTF8 } catch {} }
+function Salvar-Config($o) { try { New-Item -ItemType Directory -Path $configDir -Force | Out-Null; $o | ConvertTo-Json | Set-Content -LiteralPath $configFile -Encoding UTF8 } catch {} }
 
-$extensoes = @('.mp4','.mkv','.avi','.mov','.wmv','.flv','.webm','.m4v','.mpg','.mpeg','.mts','.m2ts','.ts','.3gp','.vob')
-
-$formatos = @(
-    [pscustomobject]@{ Id=1; Nome='MP3';       Desc='Compatível com tudo (192 kbps)';    Ext='.mp3'; Args=@('-c:a','libmp3lame','-b:a','192k') },
-    [pscustomobject]@{ Id=2; Nome='M4A (AAC)';  Desc='Ótima qualidade x tamanho (192 kbps)'; Ext='.m4a'; Args=@('-c:a','aac','-b:a','192k') },
-    [pscustomobject]@{ Id=3; Nome='WAV';        Desc='Sem compressão (arquivo grande)';   Ext='.wav'; Args=@('-c:a','pcm_s16le') }
-)
-
-Titulo 'Extrair Áudio'
-Write-Host '  Desenvolvido por Pablo Murad - 2026' -ForegroundColor DarkGray
-Write-Host ''
-Write-Host 'Verificando o que é necessário...' -ForegroundColor Gray
-$ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
-if (-not $ffmpeg) {
-    Write-Host ''; Write-Host '[ERRO] FFmpeg não encontrado.' -ForegroundColor Red
-    Write-Host 'Instale com:  winget install Gyan.FFmpeg' -ForegroundColor White
-    Pausar; exit 1
-}
-Write-Host "[OK] FFmpeg: $($ffmpeg.Source)" -ForegroundColor Green
-$config = Carregar-Config
-
-# Pasta ou vídeo
-$entradaAtual = if ($config -and $config.UltimaEntrada) { $config.UltimaEntrada } else { Join-Path $env:USERPROFILE 'Downloads\Vídeos' }
-$modoArquivo = $false; $arquivoUnico = $null
-while ($true) {
-    Titulo 'Pasta ou vídeo'
-    Write-Host "  $entradaAtual" -ForegroundColor White
-    Write-Host 'Enter = confirmar | ou cole uma PASTA ou um VÍDEO' -ForegroundColor DarkGray
-    $resp = Read-Host 'Pasta/vídeo'
-    if (-not [string]::IsNullOrWhiteSpace($resp)) { $entradaAtual = $resp.Trim().Trim('"') }
-    if (Test-Path -LiteralPath $entradaAtual -PathType Leaf) {
-        if ($extensoes -notcontains [System.IO.Path]::GetExtension($entradaAtual).ToLowerInvariant()) { Write-Host '[!] Não é um vídeo suportado.' -ForegroundColor Yellow; continue }
-        $modoArquivo = $true; $arquivoUnico = (Resolve-Path -LiteralPath $entradaAtual).Path; break
-    } elseif (Test-Path -LiteralPath $entradaAtual -PathType Container) { $modoArquivo = $false; break }
-    Write-Host "[!] Caminho não encontrado." -ForegroundColor Yellow
-}
-if ($modoArquivo) { $arquivoObj = Get-Item -LiteralPath $arquivoUnico; $origem = $arquivoObj.DirectoryName } else { $origem = (Resolve-Path -LiteralPath $entradaAtual).Path }
-$destino = Join-Path $origem 'Áudio'
-
-# Formato
-$fmtPadrao = if ($config -and $config.UltimoFormato) { [int]$config.UltimoFormato } else { 1 }
-Titulo 'Formato do áudio'
-foreach ($f in $formatos) {
-    $m = if ($f.Id -eq $fmtPadrao) { '>' } else { ' ' }
-    $c = if ($f.Id -eq $fmtPadrao) { 'White' } else { 'Gray' }
-    Write-Host ("{0} [{1}] {2}" -f $m,$f.Id,$f.Nome) -ForegroundColor $c
-    Write-Host ("       {0}" -f $f.Desc) -ForegroundColor DarkGray
-}
-Write-Host "Enter = padrão [$fmtPadrao]" -ForegroundColor DarkGray
-$formato = $null
-while (-not $formato) {
-    $e = Read-Host 'Formato (1-3)'; if ([string]::IsNullOrWhiteSpace($e)) { $e = "$fmtPadrao" }
-    $formato = $formatos | Where-Object { $_.Id -eq ($e -as [int]) } | Select-Object -First 1
-    if (-not $formato) { Write-Host '[!] Inválido.' -ForegroundColor Yellow }
-}
-# Pasta de saída (lembra a última; cria se não existir)
-$saidaPadrao = if ($config -and $config.UltimaSaida) { $config.UltimaSaida } else { $destino }
-while ($true) {
-    Titulo 'Pasta de saída'
-    Write-Host "  $saidaPadrao" -ForegroundColor White
-    Write-Host 'Enter = usar esta pasta   |   ou cole/digite outra' -ForegroundColor DarkGray
-    $rsaida = Read-Host 'Pasta de saída'
-    $destino = if ([string]::IsNullOrWhiteSpace($rsaida)) { $saidaPadrao } else { $rsaida.Trim().Trim('"') }
-    try { New-Item -ItemType Directory -Path $destino -Force | Out-Null; break }
-    catch { Write-Host '[!] Não foi possível criar/usar essa pasta.' -ForegroundColor Yellow }
-}
-$destino = (Resolve-Path -LiteralPath $destino).Path
-
-Salvar-Config $origem $formato.Id $destino
-
-# Coleta
-if ($modoArquivo) { $arquivos = @($arquivoObj) } else {
-    $arquivos = @(Get-ChildItem -LiteralPath $origem -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
-        ($extensoes -contains $_.Extension.ToLowerInvariant()) -and (-not $_.FullName.StartsWith($destino,[System.StringComparison]::OrdinalIgnoreCase)) })
-}
-Titulo 'Processando'
-Write-Host "Formato: $($formato.Nome)   |   Destino: $destino"
-Write-Host "Vídeos encontrados: $($arquivos.Count)" -ForegroundColor Cyan
-if ($arquivos.Count -eq 0) { Write-Host 'Nenhum vídeo encontrado.' -ForegroundColor Yellow; Pausar; exit 0 }
-New-Item -ItemType Directory -Path $destino -Force | Out-Null
-
-# --- 1) sonda os codecs de audio em paralelo (para poder copiar sem recodificar) ---
-$sonda = @()
-foreach ($a in $arquivos) {
-    $sonda += @{ Exe = 'ffprobe'; Rotulo = $a.Name
-                 Args = @('-v','error','-select_streams','a:0','-show_entries','stream=codec_name','-of','csv=p=0',$a.FullName) }
-}
-$codecs = @{}
-if ($sonda.Count -gt 0) {
-    Write-Host 'Analisando os audios...' -ForegroundColor Gray
-    $rs = Executar-EmParalelo -Tarefas $sonda -Limite (Limite-Padrao 'sonda') -SemProgresso
-    for ($i = 0; $i -lt $rs.Count; $i++) {
-        $c = ''
-        if ($rs[$i] -and $rs[$i].Codigo -eq 0) { $c = ($rs[$i].Saida -split "`n" | Where-Object { $_.Trim() } | Select-Object -First 1) }
-        $codecs[$arquivos[$i].FullName] = "$c".Trim()
+# Pergunta a pasta de saida: sugere a ultima usada e cria se nao existir
+function Pedir-Saida($padrao) {
+    while ($true) {
+        Titulo 'Pasta de saída'
+        Write-Host "  $padrao" -ForegroundColor White
+        Write-Host 'Enter = usar esta pasta   |   ou cole/digite outra' -ForegroundColor DarkGray
+        $r = Read-Host 'Pasta de saída'
+        $d = if ([string]::IsNullOrWhiteSpace($r)) { $padrao } else { $r.Trim().Trim('"') }
+        try { New-Item -ItemType Directory -Path $d -Force | Out-Null; return (Resolve-Path -LiteralPath $d).Path }
+        catch { Write-Host '[!] Não foi possível criar/usar essa pasta.' -ForegroundColor Yellow }
     }
 }
 
-$ok=0;$ign=0;$err=0;$copiados=0
-
-# --- 2) monta as tarefas ---
-$tarefas = @()
-foreach ($a in $arquivos) {
-    $rel = $a.FullName.Substring($origem.Length).TrimStart('\'); $sub = Split-Path $rel -Parent
-    $pastaSaida = if ([string]::IsNullOrWhiteSpace($sub)) { $destino } else { Join-Path $destino $sub }
-    New-Item -ItemType Directory -Path $pastaSaida -Force | Out-Null
-    $saida = Join-Path $pastaSaida ($a.BaseName + $formato.Ext)
-    if (Test-Path -LiteralPath $saida) { $ign++; continue }
-
-    # Se o codec da fonte ja e' o do destino, copia o stream: quase instantaneo
-    $cod = "$($codecs[$a.FullName])".ToLowerInvariant()
-    $podeCopiar = ($formato.Ext -eq '.m4a' -and $cod -eq 'aac') -or ($formato.Ext -eq '.mp3' -and $cod -eq 'mp3')
-    if ($podeCopiar) { $audioArgs = @('-c:a','copy'); $copiados++ } else { $audioArgs = $formato.Args }
-
-    $ffArgs = @('-hide_banner','-nostdin','-loglevel','error','-i',$a.FullName,'-vn') + $audioArgs + @('-y',$saida)
-    $tarefas += @{ Exe = 'ffmpeg'; Rotulo = $a.Name; Alvo = $saida; Args = $ffArgs }
+function Checar($exe, $nomeAmigavel, $comandoInstalar) {
+    $c = Get-Command $exe -ErrorAction SilentlyContinue
+    if (-not $c) {
+        Write-Host ''
+        Write-Host "[ERRO] $nomeAmigavel não foi encontrado." -ForegroundColor Red
+        Write-Host "Instale com:  $comandoInstalar" -ForegroundColor White
+        Pausar; exit 1
+    }
+    Write-Host ("[OK] {0}: {1}" -f $nomeAmigavel, $c.Source) -ForegroundColor Green
+    return $c
 }
 
-if ($ign -gt 0) { Write-Host "$ign ja existiam no destino e foram pulados." -ForegroundColor Yellow }
-if ($copiados -gt 0) { Write-Host "$copiados serao copiados sem recodificar (bem mais rapido)." -ForegroundColor Green }
+function Abrir($titulo) {
+    Titulo $titulo
+    Write-Host '  Desenvolvido por Pablo Murad - 2026' -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Host 'Verificando o que é necessário...' -ForegroundColor Gray
+}
 
-# --- 3) executa em paralelo ---
-if ($tarefas.Count -gt 0) {
-    $lim = Limite-Padrao 'cpu'
-    Write-Host ("Extraindo de {0} video(s), ate {1} ao mesmo tempo..." -f $tarefas.Count, $lim) -ForegroundColor Gray
-    $resultados = Executar-EmParalelo -Tarefas $tarefas -Limite $lim
+$extVideo = @('.mp4','.mkv','.avi','.mov','.wmv','.flv','.webm','.m4v','.mpg','.mpeg','.mts','.m2ts','.ts','.3gp','.vob')
+$extAudio = @('.mp3','.m4a','.wav','.flac','.aac','.ogg','.wma','.opus')
+$extImg   = @('.jpg','.jpeg','.png','.webp','.bmp','.tif','.tiff')
+
+# Pede uma PASTA ou um ARQUIVO; devolve @{ Modo; Caminho; Origem }
+function Pedir-Entrada($padrao, $exts, $rotulo) {
+    while ($true) {
+        Titulo $rotulo
+        Write-Host "  $padrao" -ForegroundColor White
+        Write-Host 'Enter = confirmar   |   ou cole/digite uma PASTA ou um ARQUIVO' -ForegroundColor DarkGray
+        $r = Read-Host 'Caminho'
+        $c = if ([string]::IsNullOrWhiteSpace($r)) { $padrao } else { $r.Trim().Trim('"') }
+        if (Test-Path -LiteralPath $c -PathType Leaf) {
+            if ($exts -notcontains [System.IO.Path]::GetExtension($c).ToLowerInvariant()) {
+                Write-Host '[!] Esse arquivo não é de um tipo suportado.' -ForegroundColor Yellow; $padrao = $c; continue
+            }
+            $f = Get-Item -LiteralPath $c
+            return @{ Modo='arquivo'; Caminho=$f.FullName; Origem=$f.DirectoryName }
+        }
+        elseif (Test-Path -LiteralPath $c -PathType Container) {
+            $p = (Resolve-Path -LiteralPath $c).Path
+            return @{ Modo='pasta'; Caminho=$p; Origem=$p }
+        }
+        Write-Host "[!] Caminho não encontrado." -ForegroundColor Yellow
+        $padrao = $c
+    }
+}
+
+function Listar($ent, $exts) {
+    if ($ent.Modo -eq 'arquivo') { return @(Get-Item -LiteralPath $ent.Caminho) }
+    return @(Get-ChildItem -LiteralPath $ent.Caminho -File | Where-Object { $exts -contains $_.Extension.ToLowerInvariant() } | Sort-Object Name)
+}
+
+function Resumo($ok, $ign, $err, $destino) {
+    Titulo 'Concluído'
+    Write-Host "Prontos:   $ok" -ForegroundColor Green
+    if ($ign -gt 0) { Write-Host "Ignorados: $ign" -ForegroundColor Yellow }
+    Write-Host "Erros:     $err" -ForegroundColor $(if ($err -gt 0) { 'Red' } else { 'Gray' })
+    if ($destino) { Write-Host "Destino:   $destino" }
+    Pausar
+}
+
+function Relatar($resultados, $tarefas, [ref]$ok, [ref]$err) {
     foreach ($x in $resultados) {
         $alvo = $tarefas[$x.Indice].Alvo
-        if ($x.Codigo -eq 0 -and (Test-Path -LiteralPath $alvo)) { $ok++ }
+        if ($x.Codigo -eq 0 -and (Test-Path -LiteralPath $alvo)) { $ok.Value++ }
         else {
-            $err++
+            $err.Value++
             Write-Host ("  [ERRO] {0}" -f $x.Rotulo) -ForegroundColor Red
             $motivo = ($x.Erro -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1)
             if ($motivo) { Write-Host ("         {0}" -f $motivo.Trim()) -ForegroundColor DarkGray }
@@ -312,9 +266,52 @@ if ($tarefas.Count -gt 0) {
         }
     }
 }
-Titulo 'Concluído'
-Write-Host "Extraídos: $ok" -ForegroundColor Green
-Write-Host "Ignorados: $ign" -ForegroundColor Yellow
-Write-Host "Erros:     $err" -ForegroundColor $(if ($err -gt 0){'Red'}else{'Gray'})
-Write-Host "Destino:   $destino"
-Pausar
+
+Abrir 'Info de Mídia'
+Checar 'ffprobe' 'FFprobe (FFmpeg)' 'winget install Gyan.FFmpeg' | Out-Null
+$config = Carregar-Config
+
+$padrao = if ($config -and $config.UltimaEntrada) { $config.UltimaEntrada } else { Join-Path $env:USERPROFILE 'Downloads' }
+$ent = Pedir-Entrada $padrao ($extVideo + $extAudio) 'Pasta ou arquivo de mídia'
+$itens = Listar $ent ($extVideo + $extAudio)
+if ($itens.Count -eq 0) { Write-Host 'Nenhum arquivo de mídia encontrado.' -ForegroundColor Yellow; Pausar; exit 0 }
+
+Titulo 'Analisando'
+Write-Host ("{0} arquivo(s). Lendo em paralelo..." -f $itens.Count) -ForegroundColor Gray
+$tarefas = @()
+foreach ($f in $itens) {
+    $tarefas += @{ Exe='ffprobe'; Rotulo=$f.Name
+                   Args=@('-v','error','-show_entries','format=duration,bit_rate:stream=codec_type,codec_name,width,height,channels','-of','default=noprint_wrappers=1',$f.FullName) }
+}
+$rs = Executar-EmParalelo -Tarefas $tarefas -Limite (Limite-Padrao 'sonda')
+
+$linhas = @()
+for ($i=0; $i -lt $itens.Count; $i++) {
+    $f = $itens[$i]; $s = if ($rs[$i]) { "$($rs[$i].Saida)" } else { '' }
+    function Pega($chave) { $m = [regex]::Match($s, "(?m)^$chave=(.+)$"); if ($m.Success) { $m.Groups[1].Value.Trim() } else { '' } }
+    $dur = 0.0; [double]::TryParse(((Pega 'duration') -replace ',', '.'), [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$dur) | Out-Null
+    $w = Pega 'width'; $h = Pega 'height'
+    $codecs = [regex]::Matches($s, "(?m)^codec_name=(.+)$") | ForEach-Object { $_.Groups[1].Value.Trim() }
+    $br = Pega 'bit_rate'; $brTxt = if ($br -as [double]) { "{0:N0} kbps" -f ([double]$br / 1000) } else { '' }
+    $linhas += [pscustomobject]@{
+        Arquivo   = $f.Name
+        Duracao   = if ($dur -gt 0) { "{0:hh\:mm\:ss}" -f [TimeSpan]::FromSeconds($dur) } else { '' }
+        Resolucao = if ($w -and $h) { "${w}x${h}" } else { '' }
+        Codecs    = ($codecs -join '/')
+        Bitrate   = $brTxt
+        Tamanho   = (Tam $f.Length)
+        Caminho   = $f.FullName
+    }
+}
+
+Titulo 'Resultado'
+$linhas | Format-Table Arquivo, Duracao, Resolucao, Codecs, Bitrate, Tamanho -AutoSize | Out-String -Width 200 | Write-Host
+
+$destino = Pedir-Saida $(if ($config -and $config.UltimaSaida) { $config.UltimaSaida } else { $ent.Origem })
+Salvar-Config ([pscustomobject]@{ UltimaEntrada=$ent.Origem; UltimaSaida=$destino })
+$csv = Join-Path $destino ("info-midia_{0}.csv" -f (Get-Date -Format 'yyyy-MM-dd_HH-mm'))
+try {
+    $linhas | Export-Csv -LiteralPath $csv -NoTypeInformation -Encoding UTF8 -Delimiter ';'
+    Write-Host "[OK] Planilha salva em: $csv" -ForegroundColor Green
+} catch { Write-Host "[!] Não foi possível salvar o CSV: $($_.Exception.Message)" -ForegroundColor Yellow }
+Resumo $linhas.Count 0 0 $destino

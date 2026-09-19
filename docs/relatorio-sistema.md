@@ -1,19 +1,29 @@
-# Relatório do sistema
+# Relatório do Sistema
 
-Programa que mostra um resumo do computador: nome, sistema, processador, memória, vídeo, discos e espaço nas unidades.
+Um retrato do computador: processador, memória, placa de vídeo, discos e espaço livre em cada unidade.
 
 ## Como abrir
 
-Abra o arquivo `relatorio-sistema.cmd` na pasta `Úteis` (duplo clique ou Execute).
+Dê um duplo-clique em `Úteis\relatorio-sistema.cmd` — ou abra o `canivete.cmd` na raiz e escolha pelo número.
+
+## O que precisa
+
+- Nenhum programa extra
 
 ## Passo a passo
 
-1. O relatório aparece na tela em seções (computador, processador e memória, vídeo, discos, espaço nas unidades).
-2. No final, escolha se quer **salvar num arquivo .txt** (`s`/`sim` ou não).  
-   Se salvar, o arquivo vai para a **Área de trabalho**, com data e hora no nome.
-3. Pressione Enter para fechar.
+1. Abra — o relatório aparece na hora.
+2. Escolha se quer **salvar num arquivo .txt**.
+
+
+## Onde salva
+
+Se você pedir, salva um `relatorio-sistema_<data>.txt` na Área de Trabalho.
 
 ## Dicas
 
-- Útil para guardar um “retrato” do PC ou enviar para alguém que vá te ajudar.
-- Unidades quase cheias aparecem em destaque na tela.
+- Útil para mandar para o suporte ou guardar a configuração da máquina.
+- As unidades com mais de 90% de uso aparecem em vermelho.
+
+---
+*Desenvolvido por Pablo Murad - 2026*

@@ -12,6 +12,155 @@ exit /b %errorlevel%
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 try { $Host.UI.RawUI.WindowTitle = 'Converter Imagens' } catch {}
 
+# ============================================================
+#  Executar-EmParalelo - pool de processos externos (PS 5.1)
+#  Cada tarefa: @{ Exe='ffmpeg'; Args=@(...); Rotulo='x.mp4'; Dur=123.4 }
+#  Dur e' opcional (segundos) e so' pondera a barra de progresso.
+#  Devolve 1 objeto por tarefa: Indice/Rotulo/Codigo/Saida/Erro/Segundos
+# ============================================================
+function Limite-Padrao([string]$tipo) {
+    $n = [Environment]::ProcessorCount
+    switch ($tipo) {
+        'gpu'    { 3 }
+        'cpu'    { [Math]::Max(2, [Math]::Min(4,  [int]($n / 6))) }
+        'imagem' { [Math]::Max(2, [Math]::Min(8,  [int]($n / 3))) }
+        'sonda'  { [Math]::Max(4, [Math]::Min(12, [int]($n / 2))) }
+        default  { 4 }
+    }
+}
+
+function Executar-EmParalelo {
+    param(
+        [object[]]$Tarefas,
+        [int]$Limite = 4,
+        [switch]$SemProgresso
+    )
+
+    # Quoting do Windows (CommandLineToArgvW). NAO simplificar: dobrar as
+    # barras finais e' o que impede um caminho terminado em '\' de comer
+    # a aspa de fechamento.
+    function _Citar([string]$a) {
+        if ($a -eq '')            { return '""' }
+        if ($a -notmatch '[\s"]') { return $a }
+        $s = ''; $bs = 0
+        foreach ($c in $a.ToCharArray()) {
+            if ($c -eq '\') { $bs++; continue }
+            if ($c -eq '"') { $s += ('\' * ($bs * 2 + 1)) + '"'; $bs = 0; continue }
+            if ($bs) { $s += ('\' * $bs); $bs = 0 }
+            $s += $c
+        }
+        if ($bs) { $s += ('\' * ($bs * 2)) }
+        return '"' + $s + '"'
+    }
+
+    $tot = @($Tarefas).Count
+    if ($tot -eq 0) { return @() }
+    if ($Limite -lt 1) { $Limite = 1 }
+
+    $res    = New-Object object[] $tot
+    $ativos = New-Object System.Collections.ArrayList
+    $prox = 0; $feitos = 0; $falhas = 0
+    $durTotal = 0.0; foreach ($t in $Tarefas) { if ($t.Dur) { $durTotal += [double]$t.Dur } }
+    $durFeita = 0.0
+    $t0 = Get-Date
+
+    try {
+        while ($feitos -lt $tot) {
+
+            while ($ativos.Count -lt $Limite -and $prox -lt $tot) {
+                $t = $Tarefas[$prox]
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName               = $t.Exe
+                $psi.Arguments              = ((@($t.Args) | ForEach-Object { _Citar $_ }) -join ' ')
+                $psi.UseShellExecute        = $false
+                $psi.CreateNoWindow         = $true
+                $psi.RedirectStandardOutput = $true
+                $psi.RedirectStandardError  = $true
+                $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+                $psi.StandardErrorEncoding  = [System.Text.Encoding]::UTF8
+                $p = [System.Diagnostics.Process]::Start($psi)
+                [void]$ativos.Add([pscustomobject]@{
+                    Idx   = $prox
+                    Rot   = $t.Rotulo
+                    Dur   = $(if ($t.Dur) { [double]$t.Dur } else { 0.0 })
+                    Proc  = $p
+                    Linha = $p.StandardOutput.ReadLineAsync()
+                    Err   = $p.StandardError.ReadToEndAsync()
+                    Buf   = (New-Object System.Text.StringBuilder)
+                    Seg   = 0.0
+                    Ini   = (Get-Date)
+                })
+                $prox++
+            }
+
+            # drena stdout sem bloquear (senao o pipe cheio trava o processo)
+            foreach ($a in $ativos) {
+                while ($a.Linha -and $a.Linha.IsCompleted) {
+                    $l = $a.Linha.Result
+                    if ($null -eq $l) { $a.Linha = $null; break }
+                    [void]$a.Buf.AppendLine($l)
+                    if ($l -match '^out_time_us=(\d+)' -or $l -match '^out_time_ms=(\d+)') {
+                        $a.Seg = [double]$matches[1] / 1000000.0
+                    }
+                    $a.Linha = $a.Proc.StandardOutput.ReadLineAsync()
+                }
+            }
+
+            for ($i = $ativos.Count - 1; $i -ge 0; $i--) {
+                $a = $ativos[$i]
+                if (-not $a.Proc.HasExited) { continue }
+                while ($a.Linha) {
+                    $l = $a.Linha.Result
+                    if ($null -eq $l) { $a.Linha = $null; break }
+                    [void]$a.Buf.AppendLine($l)
+                    $a.Linha = $a.Proc.StandardOutput.ReadLineAsync()
+                }
+                $rc = $a.Proc.ExitCode
+                $res[$a.Idx] = [pscustomobject]@{
+                    Indice   = $a.Idx
+                    Rotulo   = $a.Rot
+                    Codigo   = $rc
+                    Saida    = $a.Buf.ToString()
+                    Erro     = $a.Err.Result
+                    Segundos = [math]::Round(((Get-Date) - $a.Ini).TotalSeconds, 1)
+                }
+                $durFeita += $a.Dur
+                try { $a.Proc.Dispose() } catch {}
+                $ativos.RemoveAt($i)
+                $feitos++
+                if ($rc -ne 0) { $falhas++ }
+            }
+
+            if (-not $SemProgresso) {
+                if ($durTotal -gt 0) {
+                    $parcial = $durFeita; foreach ($a in $ativos) { $parcial += $a.Seg }
+                    $frac = $parcial / $durTotal
+                } else {
+                    $frac = $feitos / $tot
+                }
+                if ($frac -gt 1) { $frac = 1 }
+                $pct = [int]($frac * 100)
+                $dec = (Get-Date) - $t0
+                $eta = if ($frac -gt 0.01) { [TimeSpan]::FromSeconds($dec.TotalSeconds / $frac - $dec.TotalSeconds) } else { [TimeSpan]::Zero }
+                $ch  = [int]($pct / 5)
+                Write-Host ("`r  [{0}] {1,3}%  {2}/{3}  ativos:{4}  falhas:{5}  restante ~{6:mm\:ss}   " -f `
+                    (('#' * $ch) + ('-' * (20 - $ch))), $pct, $feitos, $tot, $ativos.Count, $falhas, $eta) `
+                    -NoNewline -ForegroundColor Cyan
+            }
+
+            if ($feitos -lt $tot) { Start-Sleep -Milliseconds 150 }
+        }
+    }
+    finally {
+        foreach ($a in $ativos) {
+            try { if (-not $a.Proc.HasExited) { $a.Proc.Kill() } } catch {}
+            try { $a.Proc.Dispose() } catch {}
+        }
+    }
+    if (-not $SemProgresso) { Write-Host '' }
+    return $res
+}
+
 function Pausar {
     Write-Host ''
     Write-Host 'Pressione Enter para fechar...' -ForegroundColor DarkGray
@@ -278,31 +427,21 @@ New-Item -ItemType Directory -Path $destino -Force | Out-Null
 $convertidos = 0
 $ignorados   = 0
 $erros       = 0
-$indice      = 0
 
+# --- 1) monta as tarefas (barato, sem processar nada ainda) ---
+$tarefas = @()
 foreach ($arquivo in $arquivos) {
-    $indice++
-
     $relativo = $arquivo.FullName.Substring($origem.Length).TrimStart('\')
     $subpasta = Split-Path -Path $relativo -Parent
     $pastaSaida = if ([string]::IsNullOrWhiteSpace($subpasta)) { $destino } else { Join-Path $destino $subpasta }
     New-Item -ItemType Directory -Path $pastaSaida -Force | Out-Null
 
-    # Extensão de saída: mantém a original ou usa a do formato escolhido
     $extSaida = if ([string]::IsNullOrEmpty($formato.Ext)) { $arquivo.Extension.ToLowerInvariant() } else { $formato.Ext }
     $saida = Join-Path $pastaSaida ($arquivo.BaseName + $extSaida)
 
-    Write-Host ''
-    Write-Host ("[{0}/{1}]" -f $indice, $arquivos.Count) -ForegroundColor Magenta -NoNewline
-    Write-Host " $($arquivo.Name)"
+    if (Test-Path -LiteralPath $saida) { $ignorados++; continue }
 
-    if (Test-Path -LiteralPath $saida) {
-        Write-Host "   [IGNORADO] Já existe na pasta de destino." -ForegroundColor Yellow
-        $ignorados++
-        continue
-    }
-
-    # Entrada: para GIF/multiframe indo para formato de imagem única, pega o 1o quadro
+    # GIF/multiframe indo para formato de imagem unica: pega o 1o quadro
     $entradaMagick = $arquivo.FullName
     if ($arquivo.Extension.ToLowerInvariant() -eq '.gif' -and $extSaida -ne '.gif') {
         $entradaMagick = "$($arquivo.FullName)[0]"
@@ -310,27 +449,36 @@ foreach ($arquivo in $arquivos) {
 
     $imgArgs = @($entradaMagick)
     if ($resizeArg) { $imgArgs += @('-resize', $resizeArg) }
-    # JPG não tem transparência: achata sobre fundo branco
     if ($extSaida -eq '.jpg' -or $extSaida -eq '.jpeg') {
         $imgArgs += @('-background', 'white', '-alpha', 'remove', '-alpha', 'off')
     }
-    if ($extSaida -in '.jpg', '.jpeg', '.webp') {
-        $imgArgs += @('-quality', '85')
-    }
+    if ($extSaida -in '.jpg', '.jpeg', '.webp') { $imgArgs += @('-quality', '85') }
     $imgArgs += $saida
 
-    & magick @imgArgs
-
-    if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $saida)) {
-        Write-Host "   [OK] Convertida." -ForegroundColor Green
-        $convertidos++
-    } else {
-        Write-Host "   [ERRO] Falha ao converter." -ForegroundColor Red
-        if (Test-Path -LiteralPath $saida) { Remove-Item -LiteralPath $saida -Force -ErrorAction SilentlyContinue }
-        $erros++
-    }
+    $tarefas += @{ Exe = 'magick'; Rotulo = $arquivo.Name; Alvo = $saida; Args = $imgArgs }
 }
 
+if ($ignorados -gt 0) { Write-Host "$ignorados ja existiam no destino e foram puladas." -ForegroundColor Yellow }
+
+# --- 2) processa em paralelo ---
+if ($tarefas.Count -gt 0) {
+    $lim = Limite-Padrao 'imagem'
+    Write-Host ("Convertendo {0} imagem(ns), ate {1} ao mesmo tempo..." -f $tarefas.Count, $lim) -ForegroundColor Gray
+    $resultados = Executar-EmParalelo -Tarefas $tarefas -Limite $lim
+
+    # --- 3) resumo, mostrando o motivo real de cada falha ---
+    foreach ($x in $resultados) {
+        $alvo = $tarefas[$x.Indice].Alvo
+        if ($x.Codigo -eq 0 -and (Test-Path -LiteralPath $alvo)) { $convertidos++ }
+        else {
+            $erros++
+            Write-Host ("  [ERRO] {0}" -f $x.Rotulo) -ForegroundColor Red
+            $motivo = ($x.Erro -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1)
+            if ($motivo) { Write-Host ("         {0}" -f $motivo.Trim()) -ForegroundColor DarkGray }
+            if (Test-Path -LiteralPath $alvo) { Remove-Item -LiteralPath $alvo -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
 # ------------------------------------------------------------
 # 6) Resumo final
 # ------------------------------------------------------------

@@ -1,26 +1,39 @@
 # Verificar Discos
 
-Programa para consultar a saúde dos HDs e SSDs do computador. Só lê informações; não apaga nem altera dados.
+Mostra a saúde dos seus HDs e SSDs — temperatura, desgaste, erros — e pode fazer um teste completo de leitura procurando setores defeituosos.
 
 ## Como abrir
 
-Abra o arquivo `verificar-discos.cmd` na pasta `Úteis` (duplo clique ou Execute).
+Dê um duplo-clique em `Úteis\verificar-discos.cmd` — ou abra o `canivete.cmd` na raiz e escolha pelo número.
 
-O Windows pode pedir permissão de administrador — aceite para ver o máximo de informações. Sem isso, parte dos dados pode faltar.
+## O que precisa
 
-## Menu
+- Nenhum programa extra (usa o próprio Windows)
+- *(opcional)* **smartmontools** — `winget install smartmontools` — para os detalhes SMART avançados
 
-Depois de abrir, escolha uma opção pelo número:
+## Passo a passo
 
-1. **Diagnóstico de saúde** — rápido e recomendado no dia a dia. Mostra, para cada disco, se está bem, temperatura, desgaste, horas ligado e erros, quando disponíveis.
-2. **Teste de superfície** — lê o disco inteiro em busca de problemas. Pode levar horas. É seguro (só leitura). Você escolhe qual disco testar; Enter cancela. Use Ctrl+C se quiser interromper no meio.
-3. **Resumo simples** — lista rápida de cada disco com OK ou aviso/falha.
-0. **Sair** — fecha o programa (Enter vazio também sai).
+1. O programa **pede permissão de administrador** (necessária para ler os sensores).
+2. Escolha uma opção do menu.
+3. Ele volta ao menu ao terminar.
 
-Após as opções 1, 2 ou 3, pressione Enter para voltar ao menu.
+## Opções
+
+| # | Opção | Tempo |
+|---|-------|-------|
+| 1 | Diagnóstico de saúde | Segundos |
+| 2 | Teste de superfície | **Horas** — lê o disco inteiro |
+| 3 | Resumo simples | Instantâneo |
+
+## Onde salva
+
+Nada é salvo — é só leitura.
 
 ## Dicas
 
-- Comece pelo diagnóstico de saúde (opção 1); use o teste de superfície só se quiser uma verificação mais profunda.
-- O teste de superfície demora muito em discos grandes — deixe o PC ligado e evite desligar no meio.
-- Se algum disco aparecer com aviso ou falha, considere fazer backup e procurar assistência.
+- **Nada é alterado no disco**: mesmo o teste de superfície apenas *lê*.
+- HDs externos por USB às vezes não expõem os dados SMART — é limitação da gaveta, não do programa.
+- O teste de superfície pode ser cancelado a qualquer momento com Ctrl+C.
+
+---
+*Desenvolvido por Pablo Murad - 2026*

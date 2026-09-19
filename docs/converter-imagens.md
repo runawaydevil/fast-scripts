@@ -1,45 +1,43 @@
 # Converter Imagens
 
-Programa para redimensionar e/ou converter imagens, uma de cada vez ou várias de uma pasta.
+Redimensiona e converte imagens em lote, sempre mantendo a proporção.
 
 ## Como abrir
 
-Abra o arquivo `converter-imagens.cmd` na pasta `Imagens` (duplo clique ou Execute).
+Dê um duplo-clique em `Imagens\converter-imagens.cmd` — ou abra o `canivete.cmd` na raiz e escolha pelo número.
 
-Na primeira vez, se faltar algo necessário no computador, o programa avisa e mostra o que instalar. Depois de instalar, feche e abra de novo.
+## O que precisa
+
+- **ImageMagick** — `winget install ImageMagick.ImageMagick`
 
 ## Passo a passo
 
-1. **Pasta ou imagem**  
-   Confirme o caminho sugerido (Enter) ou cole/digite o caminho de uma pasta ou de uma imagem.  
-   Se a pasta não existir, o programa pergunta se quer criá-la.
+1. Informe a **pasta ou uma imagem**.
+2. Escolha o **formato de saída**.
+3. Escolha como informar o **tamanho**.
+4. Confirme a **pasta de saída**.
 
-2. **Formato de saída**  
-   Escolha o número da opção:
-   - manter o formato original (só redimensiona)
-   - JPG
-   - PNG
-   - WebP  
+## Opções
 
-   Enter usa a opção marcada como padrão (a última que você usou, quando houver).
+**Formato:** manter o original · JPG · PNG · WebP
 
-3. **Tamanho**  
-   Escolha:
-   - pixels do maior lado (ex.: 1920)
-   - porcentagem (ex.: 50)
-   - não redimensionar (só muda o formato)  
+**Tamanho**
 
-   Depois informe o valor, se for o caso. Enter pode repetir o valor usado da última vez.
+| # | Modo | Exemplo |
+|---|------|---------|
+| 1 | Pixels do maior lado | `1920` — a imagem cabe em 1920×1920 |
+| 2 | Porcentagem | `50` — metade do tamanho |
+| 3 | Não redimensionar | Só converte o formato |
 
-4. **Aguarde o processamento**  
-   O programa lista cada imagem e mostra se foi convertida, ignorada (já existia no destino) ou se deu erro.
+## Onde salva
 
-5. **Resultado**  
-   Os arquivos ficam na pasta `Convertido`, dentro da pasta de origem (ou ao lado da imagem única). A estrutura de subpastas é preservada.
+Na pasta de saída escolhida (padrão: subpasta `Convertido`), preservando as subpastas.
 
 ## Dicas
 
-- Você pode processar uma pasta inteira (incluindo subpastas) ou só um arquivo.
-- Formatos comuns de entrada são aceitos (fotos e imagens do dia a dia).
-- O programa lembra pasta, formato e tamanho usados nas últimas execuções.
-- Pressione Enter no final para fechar a janela.
+- **Nunca amplia** a imagem — só reduz.
+- Converter PNG com transparência para JPG achata sobre fundo branco automaticamente.
+- É o programa que mais ganha com o processamento paralelo: lotes grandes ficam **várias vezes mais rápidos**.
+
+---
+*Desenvolvido por Pablo Murad - 2026*

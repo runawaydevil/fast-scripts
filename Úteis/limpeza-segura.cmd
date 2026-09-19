@@ -1,6 +1,7 @@
 <# :
 @echo off
-powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('%~f0',[System.Text.Encoding]::UTF8))"
+set "SELF=%~f0"
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText($env:SELF,[System.Text.Encoding]::UTF8))"
 exit /b %errorlevel%
 #>
 
@@ -13,6 +14,17 @@ exit /b %errorlevel%
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 try { $Host.UI.RawUI.WindowTitle = 'Limpeza segura' } catch {}
 
+# ------------------------------------------------------------
+# Auto-elevacao: sem admin, C:\Windows\Temp e o cache do Windows
+# Update nao podem ser lidos nem limpos (falhava em silencio).
+# ------------------------------------------------------------
+$souAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $souAdmin) {
+    Write-Host 'Solicitando privilegios de administrador...' -ForegroundColor Yellow
+    try { Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', "`"$env:SELF`"" -Verb RunAs | Out-Null }
+    catch { Write-Host '[!] Sem elevacao: os temporarios do Windows serao ignorados.' -ForegroundColor Yellow; Start-Sleep -Seconds 2 }
+    exit
+}
 function Pausar { Write-Host ''; Write-Host 'Pressione Enter para fechar...' -ForegroundColor DarkGray; [void][System.Console]::ReadLine() }
 function Titulo($t) {
     Write-Host ''

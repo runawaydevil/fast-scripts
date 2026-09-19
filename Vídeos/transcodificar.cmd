@@ -12,6 +12,155 @@ exit /b %errorlevel%
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 try { $Host.UI.RawUI.WindowTitle = 'Transcodificar Vídeos' } catch {}
 
+# ============================================================
+#  Executar-EmParalelo - pool de processos externos (PS 5.1)
+#  Cada tarefa: @{ Exe='ffmpeg'; Args=@(...); Rotulo='x.mp4'; Dur=123.4 }
+#  Dur e' opcional (segundos) e so' pondera a barra de progresso.
+#  Devolve 1 objeto por tarefa: Indice/Rotulo/Codigo/Saida/Erro/Segundos
+# ============================================================
+function Limite-Padrao([string]$tipo) {
+    $n = [Environment]::ProcessorCount
+    switch ($tipo) {
+        'gpu'    { 3 }
+        'cpu'    { [Math]::Max(2, [Math]::Min(4,  [int]($n / 6))) }
+        'imagem' { [Math]::Max(2, [Math]::Min(8,  [int]($n / 3))) }
+        'sonda'  { [Math]::Max(4, [Math]::Min(12, [int]($n / 2))) }
+        default  { 4 }
+    }
+}
+
+function Executar-EmParalelo {
+    param(
+        [object[]]$Tarefas,
+        [int]$Limite = 4,
+        [switch]$SemProgresso
+    )
+
+    # Quoting do Windows (CommandLineToArgvW). NAO simplificar: dobrar as
+    # barras finais e' o que impede um caminho terminado em '\' de comer
+    # a aspa de fechamento.
+    function _Citar([string]$a) {
+        if ($a -eq '')            { return '""' }
+        if ($a -notmatch '[\s"]') { return $a }
+        $s = ''; $bs = 0
+        foreach ($c in $a.ToCharArray()) {
+            if ($c -eq '\') { $bs++; continue }
+            if ($c -eq '"') { $s += ('\' * ($bs * 2 + 1)) + '"'; $bs = 0; continue }
+            if ($bs) { $s += ('\' * $bs); $bs = 0 }
+            $s += $c
+        }
+        if ($bs) { $s += ('\' * ($bs * 2)) }
+        return '"' + $s + '"'
+    }
+
+    $tot = @($Tarefas).Count
+    if ($tot -eq 0) { return @() }
+    if ($Limite -lt 1) { $Limite = 1 }
+
+    $res    = New-Object object[] $tot
+    $ativos = New-Object System.Collections.ArrayList
+    $prox = 0; $feitos = 0; $falhas = 0
+    $durTotal = 0.0; foreach ($t in $Tarefas) { if ($t.Dur) { $durTotal += [double]$t.Dur } }
+    $durFeita = 0.0
+    $t0 = Get-Date
+
+    try {
+        while ($feitos -lt $tot) {
+
+            while ($ativos.Count -lt $Limite -and $prox -lt $tot) {
+                $t = $Tarefas[$prox]
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName               = $t.Exe
+                $psi.Arguments              = ((@($t.Args) | ForEach-Object { _Citar $_ }) -join ' ')
+                $psi.UseShellExecute        = $false
+                $psi.CreateNoWindow         = $true
+                $psi.RedirectStandardOutput = $true
+                $psi.RedirectStandardError  = $true
+                $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+                $psi.StandardErrorEncoding  = [System.Text.Encoding]::UTF8
+                $p = [System.Diagnostics.Process]::Start($psi)
+                [void]$ativos.Add([pscustomobject]@{
+                    Idx   = $prox
+                    Rot   = $t.Rotulo
+                    Dur   = $(if ($t.Dur) { [double]$t.Dur } else { 0.0 })
+                    Proc  = $p
+                    Linha = $p.StandardOutput.ReadLineAsync()
+                    Err   = $p.StandardError.ReadToEndAsync()
+                    Buf   = (New-Object System.Text.StringBuilder)
+                    Seg   = 0.0
+                    Ini   = (Get-Date)
+                })
+                $prox++
+            }
+
+            # drena stdout sem bloquear (senao o pipe cheio trava o processo)
+            foreach ($a in $ativos) {
+                while ($a.Linha -and $a.Linha.IsCompleted) {
+                    $l = $a.Linha.Result
+                    if ($null -eq $l) { $a.Linha = $null; break }
+                    [void]$a.Buf.AppendLine($l)
+                    if ($l -match '^out_time_us=(\d+)' -or $l -match '^out_time_ms=(\d+)') {
+                        $a.Seg = [double]$matches[1] / 1000000.0
+                    }
+                    $a.Linha = $a.Proc.StandardOutput.ReadLineAsync()
+                }
+            }
+
+            for ($i = $ativos.Count - 1; $i -ge 0; $i--) {
+                $a = $ativos[$i]
+                if (-not $a.Proc.HasExited) { continue }
+                while ($a.Linha) {
+                    $l = $a.Linha.Result
+                    if ($null -eq $l) { $a.Linha = $null; break }
+                    [void]$a.Buf.AppendLine($l)
+                    $a.Linha = $a.Proc.StandardOutput.ReadLineAsync()
+                }
+                $rc = $a.Proc.ExitCode
+                $res[$a.Idx] = [pscustomobject]@{
+                    Indice   = $a.Idx
+                    Rotulo   = $a.Rot
+                    Codigo   = $rc
+                    Saida    = $a.Buf.ToString()
+                    Erro     = $a.Err.Result
+                    Segundos = [math]::Round(((Get-Date) - $a.Ini).TotalSeconds, 1)
+                }
+                $durFeita += $a.Dur
+                try { $a.Proc.Dispose() } catch {}
+                $ativos.RemoveAt($i)
+                $feitos++
+                if ($rc -ne 0) { $falhas++ }
+            }
+
+            if (-not $SemProgresso) {
+                if ($durTotal -gt 0) {
+                    $parcial = $durFeita; foreach ($a in $ativos) { $parcial += $a.Seg }
+                    $frac = $parcial / $durTotal
+                } else {
+                    $frac = $feitos / $tot
+                }
+                if ($frac -gt 1) { $frac = 1 }
+                $pct = [int]($frac * 100)
+                $dec = (Get-Date) - $t0
+                $eta = if ($frac -gt 0.01) { [TimeSpan]::FromSeconds($dec.TotalSeconds / $frac - $dec.TotalSeconds) } else { [TimeSpan]::Zero }
+                $ch  = [int]($pct / 5)
+                Write-Host ("`r  [{0}] {1,3}%  {2}/{3}  ativos:{4}  falhas:{5}  restante ~{6:mm\:ss}   " -f `
+                    (('#' * $ch) + ('-' * (20 - $ch))), $pct, $feitos, $tot, $ativos.Count, $falhas, $eta) `
+                    -NoNewline -ForegroundColor Cyan
+            }
+
+            if ($feitos -lt $tot) { Start-Sleep -Milliseconds 150 }
+        }
+    }
+    finally {
+        foreach ($a in $ativos) {
+            try { if (-not $a.Proc.HasExited) { $a.Proc.Kill() } } catch {}
+            try { $a.Proc.Dispose() } catch {}
+        }
+    }
+    if (-not $SemProgresso) { Write-Host '' }
+    return $res
+}
+
 function Pausar {
     Write-Host ''
     Write-Host 'Pressione Enter para fechar...' -ForegroundColor DarkGray
@@ -259,64 +408,66 @@ if ($perfil.Altura -eq 0) {
 $convertidos = 0
 $ignorados   = 0
 $erros       = 0
-$indice      = 0
 
+# --- 1) sonda as duracoes em paralelo (alimenta a barra global) ---
+$sonda = @()
 foreach ($arquivo in $arquivos) {
-    $indice++
+    $sonda += @{ Exe='ffprobe'; Rotulo=$arquivo.Name
+                 Args=@('-v','error','-show_entries','format=duration','-of','csv=p=0',$arquivo.FullName) }
+}
+$duracoes = @{}
+if ($sonda.Count -gt 0) {
+    Write-Host 'Analisando os videos...' -ForegroundColor Gray
+    $rs = Executar-EmParalelo -Tarefas $sonda -Limite (Limite-Padrao 'sonda') -SemProgresso
+    for ($i = 0; $i -lt $rs.Count; $i++) {
+        $d = 0.0
+        if ($rs[$i] -and $rs[$i].Codigo -eq 0) {
+            $bruto = (("$($rs[$i].Saida)" -split "`n" | Where-Object { $_.Trim() } | Select-Object -First 1) -replace ',', '.')
+            [double]::TryParse($bruto, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$d) | Out-Null
+        }
+        $duracoes[$arquivos[$i].FullName] = $d
+    }
+}
 
+# --- 2) monta as tarefas ---
+switch ($motor) {
+    'gpu'          { $vcodec = @('-c:v','h264_nvenc','-preset','p5','-cq',"$($perfil.Crf)",'-pix_fmt','yuv420p') }
+    'cpu-rapido'   { $vcodec = @('-c:v','libx264','-preset','veryfast','-crf',"$($perfil.Crf)",'-pix_fmt','yuv420p') }
+    default        { $vcodec = @('-c:v','libx264','-preset','medium','-crf',"$($perfil.Crf)",'-pix_fmt','yuv420p') }
+}
+$tarefas = @()
+foreach ($arquivo in $arquivos) {
     $relativo = $arquivo.FullName.Substring($origem.Length).TrimStart('\')
     $subpasta = Split-Path -Path $relativo -Parent
     $pastaSaida = if ([string]::IsNullOrWhiteSpace($subpasta)) { $destino } else { Join-Path $destino $subpasta }
     New-Item -ItemType Directory -Path $pastaSaida -Force | Out-Null
-
     $saida = Join-Path $pastaSaida ($arquivo.BaseName + '.mp4')
-
-    Write-Host ''
-    Write-Host ("[{0}/{1}]" -f $indice, $arquivos.Count) -ForegroundColor Magenta -NoNewline
-    Write-Host " $($arquivo.Name)"
-
-    if (Test-Path -LiteralPath $saida) {
-        Write-Host "   [IGNORADO] Já existe na pasta de destino." -ForegroundColor Yellow
-        $ignorados++
-        continue
-    }
-
-    # Codec de vídeo conforme o motor escolhido
-    switch ($motor) {
-        'gpu'          { $vcodec = @('-c:v', 'h264_nvenc', '-preset', 'p5', '-cq', "$($perfil.Crf)", '-pix_fmt', 'yuv420p') }
-        'cpu-rapido'   { $vcodec = @('-c:v', 'libx264', '-preset', 'veryfast', '-crf', "$($perfil.Crf)", '-pix_fmt', 'yuv420p') }
-        default        { $vcodec = @('-c:v', 'libx264', '-preset', 'medium', '-crf', "$($perfil.Crf)", '-pix_fmt', 'yuv420p') }
-    }
-    $ffArgs = @('-hide_banner', '-nostdin', '-i', $arquivo.FullName, '-map', '0:v:0', '-map', '0:a?', '-vf', $vf) +
+    if (Test-Path -LiteralPath $saida) { $ignorados++; continue }
+    $ffArgs = @('-hide_banner','-nostdin','-loglevel','error','-i',$arquivo.FullName,'-map','0:v:0','-map','0:a?','-vf',$vf) +
               $vcodec +
-              @('-c:a', 'aac', '-b:a', $perfil.Audio, '-ac', '2', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', '-y', $saida)
-
-    # Duração do vídeo para a barra de progresso
-    $dur = 0.0
-    try { $dur = [double](& ffprobe -v error -show_entries format=duration -of csv=p=0 $arquivo.FullName 2>$null) } catch {}
-
-    & ffmpeg @ffArgs 2>$null | ForEach-Object {
-        if ($dur -gt 0 -and $_ -match '^out_time=(\d+):(\d+):([\d.]+)') {
-            $seg = [int]$matches[1]*3600 + [int]$matches[2]*60 + [double]$matches[3]
-            $pct = [int](($seg / $dur) * 100); if ($pct -gt 100) { $pct = 100 }
-            $cheio = [int]($pct / 5)
-            $barra = ('#' * $cheio) + ('-' * (20 - $cheio))
-            Write-Host ("`r   [{0}] {1,3}%  " -f $barra, $pct) -NoNewline -ForegroundColor Cyan
-        }
-    }
-    $rc = $LASTEXITCODE
-    if ($dur -gt 0) { Write-Host ("`r   [{0}] 100%  " -f ('#' * 20)) -ForegroundColor Cyan }
-
-    if ($rc -eq 0 -and (Test-Path -LiteralPath $saida)) {
-        Write-Host "   [OK] Convertido." -ForegroundColor Green
-        $convertidos++
-    } else {
-        Write-Host "   [ERRO] Falha ao converter." -ForegroundColor Red
-        if (Test-Path -LiteralPath $saida) { Remove-Item -LiteralPath $saida -Force -ErrorAction SilentlyContinue }
-        $erros++
-    }
+              @('-c:a','aac','-b:a',$perfil.Audio,'-ac','2','-movflags','+faststart','-progress','pipe:1','-nostats','-y',$saida)
+    $tarefas += @{ Exe='ffmpeg'; Rotulo=$arquivo.Name; Alvo=$saida; Dur=$duracoes[$arquivo.FullName]; Args=$ffArgs }
 }
 
+if ($ignorados -gt 0) { Write-Host "$ignorados ja existiam no destino e foram pulados." -ForegroundColor Yellow }
+
+# --- 3) converte em paralelo ---
+if ($tarefas.Count -gt 0) {
+    $lim = Limite-Padrao $(if ($motor -eq 'gpu') { 'gpu' } else { 'cpu' })
+    Write-Host ("Convertendo {0} video(s), ate {1} ao mesmo tempo..." -f $tarefas.Count, $lim) -ForegroundColor Gray
+    $resultados = Executar-EmParalelo -Tarefas $tarefas -Limite $lim
+    foreach ($x in $resultados) {
+        $alvo = $tarefas[$x.Indice].Alvo
+        if ($x.Codigo -eq 0 -and (Test-Path -LiteralPath $alvo)) { $convertidos++ }
+        else {
+            $erros++
+            Write-Host ("  [ERRO] {0}" -f $x.Rotulo) -ForegroundColor Red
+            $motivo = ($x.Erro -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1)
+            if ($motivo) { Write-Host ("         {0}" -f $motivo.Trim()) -ForegroundColor DarkGray }
+            if (Test-Path -LiteralPath $alvo) { Remove-Item -LiteralPath $alvo -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
 # ------------------------------------------------------------
 # 5) Resumo final
 # ------------------------------------------------------------

@@ -1,32 +1,31 @@
 # Marca d'água
 
-Programa para aplicar texto ou logo em imagens, uma de cada vez ou várias de uma pasta.
+Aplica um texto ou um logo sobre as imagens, em lote.
 
 ## Como abrir
 
-Abra o arquivo `marca-dagua.cmd` na pasta `Imagens` (duplo clique ou Execute).
+Dê um duplo-clique em `Imagens\marca-dagua.cmd` — ou abra o `canivete.cmd` na raiz e escolha pelo número.
 
-Na primeira vez, se faltar algo necessário no computador, o programa avisa e mostra o que instalar. Depois de instalar, feche e abra de novo.
+## O que precisa
+
+- **ImageMagick** — `winget install ImageMagick.ImageMagick`
 
 ## Passo a passo
 
-1. **Pasta ou imagem**  
-   Confirme o caminho sugerido (Enter) ou cole/digite uma pasta ou uma imagem.
+1. Informe a **pasta ou uma imagem**.
+2. Escolha **texto** ou **logo** (PNG).
+3. Escolha a **posição** (5 opções).
+4. Confirme a **pasta de saída**.
 
-2. **Tipo de marca**  
-   - **Texto** — digite o texto que aparecerá na foto.  
-   - **Logo** — informe o caminho de um PNG (de preferência com fundo transparente) e, se quiser, o tamanho em % da largura (Enter = 20).
 
-3. **Posição**  
-   Escolha: inferior direita (padrão), inferior esquerda, superior direita, superior esquerda ou centro.
+## Onde salva
 
-4. **Aguarde o processamento**  
-   Cada imagem é listada; as que já existem no destino são ignoradas.
-
-5. **Resultado**  
-   As fotos ficam na pasta `ComMarca`, dentro da pasta de origem. Subpastas são preservadas.
+Na pasta de saída escolhida (padrão: subpasta `ComMarca`), preservando as subpastas.
 
 ## Dicas
 
-- O programa lembra a última pasta e opções usadas.
-- Pressione Enter no final para fechar a janela.
+- O tamanho do texto e do logo é **proporcional à imagem**, então fica igual em fotos grandes e pequenas.
+- Use PNG com fundo transparente para o logo.
+
+---
+*Desenvolvido por Pablo Murad - 2026*

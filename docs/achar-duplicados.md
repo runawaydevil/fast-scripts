@@ -1,23 +1,39 @@
-# Achar duplicados
+# Achar Duplicados
 
-Programa que encontra arquivos iguais pelo conteúdo (não só pelo nome) dentro de uma pasta e subpastas.
+Encontra arquivos com o **conteúdo** idêntico (mesmo com nomes diferentes) e mostra quanto espaço dá para recuperar.
 
 ## Como abrir
 
-Abra o arquivo `achar-duplicados.cmd` na pasta `Organizar` (duplo clique ou Execute).
+Dê um duplo-clique em `Organizar\achar-duplicados.cmd` — ou abra o `canivete.cmd` na raiz e escolha pelo número.
+
+## O que precisa
+
+- Nenhum programa extra
 
 ## Passo a passo
 
-1. Cole o caminho da pasta a analisar.
-2. Aguarde a análise (pastas grandes podem demorar).
-3. Se houver duplicados, veja o resumo: grupos de iguais, cópias extras e espaço que dá para recuperar. Até 15 grupos são listados na tela; o primeiro de cada grupo é marcado como manter.
-4. Escolha o que fazer:
-   - **Só listar** (Enter = padrão) — nada é alterado.
-   - **Mover as cópias extras** para a subpasta `_Duplicados`.
-   - **Apagar as cópias extras** — pede confirmação digitando `APAGAR`; sempre mantém 1 original.
+1. Informe a **pasta** (ele olha também as subpastas).
+2. Aguarde a comparação.
+3. Veja os grupos de iguais.
+4. Escolha o que fazer com as cópias extras.
+
+## Opções
+
+| # | Ação | O que faz |
+|---|------|-----------|
+| 1 | Só listar | Não altera nada — é o padrão |
+| 2 | Mover | Move as cópias extras para a subpasta `_Duplicados` |
+| 3 | Apagar | Apaga as cópias extras (exige digitar `APAGAR`) |
+
+## Onde salva
+
+A opção 2 cria a subpasta `_Duplicados` dentro da pasta analisada.
 
 ## Dicas
 
-- Pastas com muitos arquivos iguais de tamanho passam por uma comparação mais profunda — paciência.
-- A opção de apagar é permanente; se tiver dúvida, use só listar ou mover.
-- Pressione Enter no final para fechar a janela.
+- **Sempre mantém uma cópia** de cada arquivo — o primeiro em ordem alfabética, marcado como `[manter]`.
+- É rápido porque compara em três etapas: primeiro o tamanho, depois só as pontas do arquivo, e só então o conteúdo inteiro.
+- Na dúvida, use a opção 2 (mover): dá para conferir antes de apagar de vez.
+
+---
+*Desenvolvido por Pablo Murad - 2026*
