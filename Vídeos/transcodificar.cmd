@@ -38,10 +38,10 @@ function Carregar-Config {
     return $null
 }
 
-function Salvar-Config($pasta, $qualidade, $saida) {
+function Salvar-Config($pasta, $qualidade, $saida, $motor) {
     try {
         New-Item -ItemType Directory -Path $configDir -Force | Out-Null
-        [pscustomobject]@{ UltimaPasta = $pasta; UltimaQualidade = $qualidade; UltimaSaida = $saida } |
+        [pscustomobject]@{ UltimaPasta = $pasta; UltimaQualidade = $qualidade; UltimaSaida = $saida; UltimoMotor = $motor } |
             ConvertTo-Json | Set-Content -LiteralPath $configFile -Encoding UTF8
     } catch {}
 }
@@ -86,6 +86,8 @@ if (-not $ffmpeg) {
     exit 1
 }
 Write-Host "[OK] FFmpeg encontrado: $($ffmpeg.Source)" -ForegroundColor Green
+$temNvenc = [bool](& ffmpeg -hide_banner -encoders 2>$null | Select-String 'h264_nvenc')
+if ($temNvenc) { Write-Host '[OK] GPU NVENC disponível (aceleração por placa NVIDIA).' -ForegroundColor Green }
 
 $config = Carregar-Config
 
@@ -172,6 +174,37 @@ while (-not $perfil) {
     if (-not $perfil) { Write-Host '[!] Escolha inválida. Digite um número de 1 a 5.' -ForegroundColor Yellow }
 }
 
+# ------------------------------------------------------------
+# Motor de codificação (velocidade x qualidade/tamanho)
+# ------------------------------------------------------------
+$motorPadrao = if ($config -and $config.UltimoMotor) { $config.UltimoMotor } else { if ($temNvenc) { 'gpu' } else { 'cpu-rapido' } }
+$motoresMenu = @(
+    [pscustomobject]@{ Id=1; Cod='gpu';           Nome='GPU NVENC (mais rápido)' },
+    [pscustomobject]@{ Id=2; Cod='cpu-rapido';    Nome='CPU rápido (veryfast)' },
+    [pscustomobject]@{ Id=3; Cod='cpu-qualidade'; Nome='CPU qualidade (medium, menor arquivo)' }
+)
+$idPadrao = ($motoresMenu | Where-Object { $_.Cod -eq $motorPadrao } | Select-Object -First 1).Id
+if (-not $idPadrao) { $idPadrao = 1 }
+Titulo 'Motor de codificação (velocidade)'
+foreach ($mo in $motoresMenu) {
+    $extra = if ($mo.Cod -eq 'gpu' -and -not $temNvenc) { '  (indisponível nesta máquina)' } else { '' }
+    $marca = if ($mo.Id -eq $idPadrao) { '>' } else { ' ' }
+    $cor   = if ($mo.Id -eq $idPadrao) { 'White' } else { 'Gray' }
+    Write-Host ("{0} [{1}] {2}{3}" -f $marca, $mo.Id, $mo.Nome, $extra) -ForegroundColor $cor
+}
+Write-Host "Enter = usar a opção padrão [$idPadrao]" -ForegroundColor DarkGray
+$motor = $null
+while (-not $motor) {
+    $em = Read-Host 'Motor (1-3)'; if ([string]::IsNullOrWhiteSpace($em)) { $em = "$idPadrao" }
+    $sel = $motoresMenu | Where-Object { $_.Id -eq ($em -as [int]) } | Select-Object -First 1
+    if ($sel) { $motor = $sel.Cod } else { Write-Host '[!] Escolha 1, 2 ou 3.' -ForegroundColor Yellow }
+}
+if ($motor -eq 'gpu' -and -not $temNvenc) {
+    Write-Host '[!] GPU indisponível; usando CPU rápido (veryfast).' -ForegroundColor Yellow
+    $motor = 'cpu-rapido'
+}
+$motorNome = ($motoresMenu | Where-Object { $_.Cod -eq $motor } | Select-Object -First 1).Nome
+
 # Pasta de saída (lembra a última; cria se não existir)
 $saidaPadrao = if ($config -and $config.UltimaSaida) { $config.UltimaSaida } else { $destino }
 while ($true) {
@@ -185,7 +218,7 @@ while ($true) {
 }
 $destino = (Resolve-Path -LiteralPath $destino).Path
 
-Salvar-Config $origem $perfil.Id $destino
+Salvar-Config $origem $perfil.Id $destino $motor
 
 # ------------------------------------------------------------
 # 4) Coleta dos arquivos de vídeo
@@ -203,6 +236,7 @@ if ($modoArquivo) {
 Titulo 'Processando'
 Write-Host "Pasta:     $origem"
 Write-Host "Qualidade: $($perfil.Nome)  (CRF $($perfil.Crf), áudio $($perfil.Audio))"
+Write-Host "Motor:     $motorNome"
 Write-Host "Destino:   $destino"
 Write-Host "Vídeos encontrados: $($arquivos.Count)" -ForegroundColor Cyan
 
@@ -247,20 +281,33 @@ foreach ($arquivo in $arquivos) {
         continue
     }
 
-    $ffArgs = @(
-        '-hide_banner', '-nostdin',
-        '-i', $arquivo.FullName,
-        '-map', '0:v:0', '-map', '0:a?',
-        '-vf', $vf,
-        '-c:v', 'libx264', '-preset', 'medium', '-crf', "$($perfil.Crf)", '-pix_fmt', 'yuv420p',
-        '-c:a', 'aac', '-b:a', $perfil.Audio, '-ac', '2',
-        '-movflags', '+faststart',
-        '-y', $saida
-    )
+    # Codec de vídeo conforme o motor escolhido
+    switch ($motor) {
+        'gpu'          { $vcodec = @('-c:v', 'h264_nvenc', '-preset', 'p5', '-cq', "$($perfil.Crf)", '-pix_fmt', 'yuv420p') }
+        'cpu-rapido'   { $vcodec = @('-c:v', 'libx264', '-preset', 'veryfast', '-crf', "$($perfil.Crf)", '-pix_fmt', 'yuv420p') }
+        default        { $vcodec = @('-c:v', 'libx264', '-preset', 'medium', '-crf', "$($perfil.Crf)", '-pix_fmt', 'yuv420p') }
+    }
+    $ffArgs = @('-hide_banner', '-nostdin', '-i', $arquivo.FullName, '-map', '0:v:0', '-map', '0:a?', '-vf', $vf) +
+              $vcodec +
+              @('-c:a', 'aac', '-b:a', $perfil.Audio, '-ac', '2', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', '-y', $saida)
 
-    & ffmpeg @ffArgs
+    # Duração do vídeo para a barra de progresso
+    $dur = 0.0
+    try { $dur = [double](& ffprobe -v error -show_entries format=duration -of csv=p=0 $arquivo.FullName 2>$null) } catch {}
 
-    if ($LASTEXITCODE -eq 0) {
+    & ffmpeg @ffArgs 2>$null | ForEach-Object {
+        if ($dur -gt 0 -and $_ -match '^out_time=(\d+):(\d+):([\d.]+)') {
+            $seg = [int]$matches[1]*3600 + [int]$matches[2]*60 + [double]$matches[3]
+            $pct = [int](($seg / $dur) * 100); if ($pct -gt 100) { $pct = 100 }
+            $cheio = [int]($pct / 5)
+            $barra = ('#' * $cheio) + ('-' * (20 - $cheio))
+            Write-Host ("`r   [{0}] {1,3}%  " -f $barra, $pct) -NoNewline -ForegroundColor Cyan
+        }
+    }
+    $rc = $LASTEXITCODE
+    if ($dur -gt 0) { Write-Host ("`r   [{0}] 100%  " -f ('#' * 20)) -ForegroundColor Cyan }
+
+    if ($rc -eq 0 -and (Test-Path -LiteralPath $saida)) {
         Write-Host "   [OK] Convertido." -ForegroundColor Green
         $convertidos++
     } else {
