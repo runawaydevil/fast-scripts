@@ -120,8 +120,8 @@ function Relatar($resultados, $tarefas, [ref]$ok, [ref]$err) {
 $raizCanivete = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $raizCanivete) { $raizCanivete = (Get-Location).Path }
 
-$ordem = @('Vídeos','Imagens','Organizar','Úteis')
-$icone = @{ 'Vídeos'='[V]'; 'Imagens'='[I]'; 'Organizar'='[O]'; 'Úteis'='[U]' }
+$ordem = @('Vídeos','Imagens','Organizar','Úteis','Windows')
+$icone = @{ 'Vídeos'='[V]'; 'Imagens'='[I]'; 'Organizar'='[O]'; 'Úteis'='[U]'; 'Windows'='[W]' }
 
 while ($true) {
     Clear-Host
@@ -140,7 +140,9 @@ while ($true) {
         foreach ($c in $cmds) {
             $n++
             $itens += $c
-            $nome = $c.BaseName -replace '-', ' '
+            # Nomes com prefixo de ordem ("01 - drivers") viram "01 drivers":
+            # troca o hifen por espaco e junta os espacos que sobram
+            $nome = ($c.BaseName -replace '-', ' ') -replace '\s{2,}', ' '
             Write-Host ("    {0,2}. {1}" -f $n, $nome) -ForegroundColor Gray
         }
     }

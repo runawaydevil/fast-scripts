@@ -1,7 +1,7 @@
 # fast-scripts
 
 Programas rápidos para Windows, em lote e com interface no terminal.
-**26 programas** que você abre com um duplo-clique — sem instalar nada, sem linha de comando.
+**28 programas** que você abre com um duplo-clique — sem instalar nada, sem linha de comando.
 
 ![PowerShell](https://img.shields.io/badge/PowerShell-5391FE?style=flat&logo=powershell&logoColor=white)
 ![Batch](https://img.shields.io/badge/Batch-.cmd-4D4D4D?style=flat)
@@ -60,6 +60,13 @@ Todos seguem a mesma lógica: perguntam a **pasta ou o arquivo**, as **opções*
 | [analisar-espaco](docs/analisar-espaco.md) | Descobre o que está enchendo o disco |
 | [limpeza-segura](docs/limpeza-segura.md) | Limpa temporários e lixeira, com prévia |
 | [relatorio-sistema](docs/relatorio-sistema.md) | Specs do PC, memória, discos e espaço |
+
+### 🪟 Windows
+
+| Programa | O que faz |
+|---|---|
+| [01 - drivers](docs/drivers.md) | Salva, restaura e atualiza os drivers da máquina |
+| [02 - debloat](docs/debloat.md) | Tira o excesso do Windows, com prévia e desfazer |
 
 ### 🔪 Raiz
 

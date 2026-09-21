@@ -48,3 +48,8 @@ Transcodificado/
 *.ts
 *.3gp
 *.vob
+
+# Saída do programa de drivers (se apontarem para dentro do repo)
+Drivers/
+*.cab
+*.inf

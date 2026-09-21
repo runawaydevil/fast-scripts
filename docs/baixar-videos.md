@@ -39,6 +39,19 @@ Na pasta que você escolher (padrão: `Downloads\Baixados`). O nome do arquivo v
 - Já baixados são **pulados** automaticamente.
 - Embute capa e informações (título, autor) no arquivo.
 - A cópia do yt-dlp que o programa baixa **se atualiza sozinha** a cada 15 dias.
+- Se o yt-dlp da máquina estiver com mais de 60 dias, o programa **avisa e oferece atualizar** logo ao abrir.
+
+## Problemas comuns
+
+**Falhou no YouTube?** Atualize o yt-dlp — é a causa mais comum. O YouTube muda com frequência e derruba versões antigas. O programa oferece a atualização ao abrir.
+
+**aria2c:** se estiver instalado, é usado para acelerar o download nos outros sites, mas **não no YouTube** — lá o site bloqueia baixadores de múltiplas conexões (o "experimento SABR"), e o download falha com erro de rede. Se mesmo assim algo falhar com o aria2c, o programa **refaz sozinho no modo normal**.
+
+**Aviso "No supported JavaScript runtime":** o YouTube passou a exigir JavaScript para entregar todos os formatos. Instale o Deno para destravar os formatos que faltam:
+
+```
+winget install DenoLand.Deno
+```
 
 ---
 *Desenvolvido por Pablo Murad - 2026*

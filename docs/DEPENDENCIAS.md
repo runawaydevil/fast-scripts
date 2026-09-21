@@ -12,13 +12,15 @@ A maioria dos programas **não precisa de nada**. Os que precisam avisam na tela
 | **yt-dlp** | Baixar de sites | *baixado automaticamente* | baixar-videos |
 | **7-Zip** *(opcional)* | `.rar`, `.7z` e mais velocidade | `winget install 7zip.7zip` | compactar-zip |
 | **smartmontools** *(opcional)* | Detalhes SMART avançados | `winget install smartmontools` | verificar-discos |
+| **winget** | Instalar a ferramenta do fabricante | *instalado automaticamente* | drivers |
 
 ## Observações
 
 - **O yt-dlp se instala sozinho.** Se não existir na máquina, o `baixar-videos` baixa a versão oficial mais recente em `%LOCALAPPDATA%\fast-scripts` e ainda a mantém atualizada.
 - **O Ghostscript costuma não ficar no PATH.** Os programas procuram também em `C:\Program Files\gs`, então funciona mesmo assim.
 - **Placa NVIDIA** não é uma dependência, mas é aproveitada automaticamente quando existe (transcodificar e marca-dagua-video).
-- Programas que **não precisam de nada**: organizar-por-tipo, achar-duplicados, limpar-nomes, backup-espelhado, analisar-espaco, verificar-integridade, relatorio-sistema, limpeza-segura, verificar-discos, canivete.
+- **O `drivers` se vira sozinho.** Usa o `pnputil` e o `expand` do Windows e, se o winget não existir, baixa o App Installer oficial e registra antes de instalar a ferramenta do fabricante.
+- Programas que **não precisam de nada**: organizar-por-tipo, achar-duplicados, limpar-nomes, backup-espelhado, analisar-espaco, verificar-integridade, relatorio-sistema, limpeza-segura, verificar-discos, drivers, debloat, canivete.
 
 ---
 *Desenvolvido por Pablo Murad - 2026*

@@ -78,6 +78,27 @@ if ($ytdlp -eq $localExe) {
     }
 }
 
+# O YouTube muda constantemente: yt-dlp antigo falha ou perde formatos.
+try {
+    $ver = "$(& $ytdlp --version 2>$null | Select-Object -First 1)".Trim()
+    $dv = [datetime]::MinValue
+    if ([datetime]::TryParseExact($ver, 'yyyy.MM.dd', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$dv)) {
+        $dias = [int]((Get-Date) - $dv).TotalDays
+        if ($dias -gt 60) {
+            Write-Host ''
+            Write-Host ("[!] Seu yt-dlp e de {0} ({1} dias atras)." -f $ver, $dias) -ForegroundColor Yellow
+            Write-Host '    Versoes antigas costumam falhar no YouTube.' -ForegroundColor Yellow
+            $up = Read-Host '    Atualizar agora? (S/n)'
+            if ($up -notmatch '^(n|nao|no)$') {
+                Write-Host '    Atualizando...' -ForegroundColor Gray
+                & $ytdlp -U
+                Write-Host ''
+            }
+        } else {
+            Write-Host ("[OK] yt-dlp atualizado ({0})." -f $ver) -ForegroundColor Green
+        }
+    }
+} catch {}
 # ffmpeg (necessário p/ juntar vídeo+áudio de alta qualidade e converter áudio)
 $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
 $ffmpegDir = if ($ffmpeg) { Split-Path $ffmpeg.Source -Parent } else { $null }
@@ -162,12 +183,23 @@ $ytArgs += @('-o', (Join-Path $destino '%(title)s.%(ext)s'))
 $ytArgs += @('--embed-metadata','--embed-thumbnail')     # título, capa, etc.
 $ytArgs += @('--no-overwrites')                          # pula o que já foi baixado
 $ytArgs += @('--concurrent-fragments','8')               # baixa varios pedacos de uma vez
-# O aria2c baixa em muitas conexoes ao mesmo tempo: bem mais rapido quando existe.
-$aria = Get-Command aria2c -ErrorAction SilentlyContinue
-if ($aria) {
-    Write-Host '[OK] aria2c encontrado: download acelerado ligado.' -ForegroundColor Green
-    $ytArgs += @('--downloader','aria2c','--downloader-args','aria2c:-x16 -s16 -k1M')
-}               # download mais rápido
+
+# O aria2c acelera muito, mas quebra em algumas redes. Fica num array
+# separado para dar para tentar de novo SEM ele se falhar.
+# --disable-ipv6: sem isso ele falha com "socket error 10051" (rede
+# inalcancavel) em conexoes que nao tem rota IPv6.
+$ariaArgs = @()
+$ehYoutube = [bool](@($urls | Where-Object { $_ -match 'youtube\.com|youtu\.be' }).Count)
+if (Get-Command aria2c -ErrorAction SilentlyContinue) {
+    if ($ehYoutube) {
+        # O YouTube derruba baixadores multi-conexao (experimento SABR), entao
+        # o aria2c falha justamente la. Nos outros sites ele acelera muito.
+        Write-Host '[i] aria2c existe, mas nao e usado no YouTube (o site bloqueia). Usando o modo normal.' -ForegroundColor DarkGray
+    } else {
+        Write-Host '[OK] aria2c encontrado: download acelerado ligado.' -ForegroundColor Green
+        $ariaArgs = @('--downloader','aria2c','--downloader-args','aria2c:-x16 -s16 -k1M --disable-ipv6')
+    }
+}
 $ytArgs += @('--ignore-errors')                          # em lote, continua se um falhar
 $ytArgs += if ($playlist) { '--yes-playlist' } else { '--no-playlist' }
 if ($ffmpegDir) { $ytArgs += @('--ffmpeg-location', $ffmpegDir) }
@@ -182,8 +214,19 @@ Write-Host "Destino:   $destino"
 Write-Host "Links:     $($urls.Count)"
 Write-Host ''
 
-& $ytdlp @ytArgs @urls
+& $ytdlp @ytArgs @ariaArgs @urls
 $rc = $LASTEXITCODE
+
+# Se falhou COM o aria2c, tenta de novo SEM ele. O download nativo do
+# yt-dlp e' mais lento, mas funciona em qualquer rede.
+if ($rc -ne 0 -and $ariaArgs.Count -gt 0) {
+    Write-Host ''
+    Write-Host '[!] O download acelerado (aria2c) falhou nesta rede.' -ForegroundColor Yellow
+    Write-Host '    Tentando de novo no modo normal...' -ForegroundColor Yellow
+    Write-Host ''
+    & $ytdlp @ytArgs @urls
+    $rc = $LASTEXITCODE
+}
 
 Titulo 'Concluído'
 if ($rc -eq 0) { Write-Host '[OK] Download finalizado.' -ForegroundColor Green }
