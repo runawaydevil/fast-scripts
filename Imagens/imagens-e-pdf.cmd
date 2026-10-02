@@ -10,7 +10,38 @@ exit /b %errorlevel%
 # ============================================================
 
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
-try { $Host.UI.RawUI.WindowTitle = 'Imagens e PDF' } catch {}
+try { $Host.UI.RawUI.WindowTitle = 'Imagens e PDF' } catch {}
+
+# ------------------------------------------------------------
+# Blindagem de fechamento: amarra este processo a um Job do Windows
+# com KILL_ON_JOB_CLOSE. Se a janela for fechada no X (ou o processo
+# morrer de qualquer jeito), o Windows mata junto todo processo-filho
+# (ffmpeg, yt-dlp, etc.) — nada fica rodando orfao. O 'finally' do
+# pool so' cobre Ctrl+C e erros; o X escapa dele, e este Job cobre o X.
+# ------------------------------------------------------------
+try {
+    Add-Type -Namespace FS -Name Job -MemberDefinition @'
+[DllImport("kernel32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr CreateJobObject(IntPtr a, string n);
+[DllImport("kernel32.dll", SetLastError=true)] public static extern bool SetInformationJobObject(IntPtr j, int c, IntPtr i, uint s);
+[DllImport("kernel32.dll", SetLastError=true)] public static extern bool AssignProcessToJobObject(IntPtr j, IntPtr p);
+[DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
+'@ -ErrorAction Stop
+    if ([IntPtr]::Size -eq 8) {
+        $__job = [FS.Job]::CreateJobObject([IntPtr]::Zero, $null)
+        if ($__job -ne [IntPtr]::Zero) {
+            $__sz = 144   # JOBOBJECT_EXTENDED_LIMIT_INFORMATION em 64 bits
+            $__pi = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($__sz)
+            for ($__i = 0; $__i -lt $__sz; $__i++) { [System.Runtime.InteropServices.Marshal]::WriteByte($__pi, $__i, 0) }
+            [System.Runtime.InteropServices.Marshal]::WriteInt32($__pi, 16, 0x2000)  # KILL_ON_JOB_CLOSE
+            [void][FS.Job]::SetInformationJobObject($__job, 9, $__pi, $__sz)
+            [System.Runtime.InteropServices.Marshal]::FreeHGlobal($__pi)
+            # O handle fica aberto DE PROPOSITO ate o processo morrer: e' o
+            # fechamento dele que dispara a matanca dos filhos. $__job global
+            # impede o coletor de lixo de fechar cedo.
+            [void][FS.Job]::AssignProcessToJobObject($__job, [FS.Job]::GetCurrentProcess())
+        }
+    }
+} catch { Write-Host "[i] Blindagem de fechamento indisponivel: $($_.Exception.Message)" -ForegroundColor DarkGray }
 
 # ============================================================
 #  Executar-EmParalelo - pool de processos externos (PS 5.1)
@@ -158,7 +189,7 @@ function Executar-EmParalelo {
         }
     }
     if (-not $SemProgresso) { Write-Host '' }
-    return $res
+    return ,$res
 }
 
 function Pausar { Write-Host ''; Write-Host 'Pressione Enter para fechar...' -ForegroundColor DarkGray; [void][System.Console]::ReadLine() }
